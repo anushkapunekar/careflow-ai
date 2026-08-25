@@ -2,10 +2,17 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from app.llm import ask_llm, SYSTEM_PROMPT, TOOLS
-from app.tools import check_appointment_availability
+from app.tools import (
+    check_appointment_availability,
+    book_appointment
+)
+from app.database import initialize_database, seed_appointments
 
 
 app = FastAPI(title="CareFlow AI")
+
+initialize_database()
+seed_appointments()
 
 
 class ChatRequest(BaseModel):
@@ -59,10 +66,10 @@ def chat(request: ChatRequest):
         tools=TOOLS
     )
 
-    # If the LLM requested a tool
+    # If the LLM requested one or more tools
     if response.tool_calls:
 
-        # Store the assistant's tool request in conversation history
+        # Store the assistant's tool request
         conversation.append(
             {
                 "role": "assistant",
@@ -84,38 +91,54 @@ def chat(request: ChatRequest):
         # Execute each requested tool
         for tool_call in response.tool_calls:
 
+            import json
+
+            arguments = json.loads(
+                tool_call.function.arguments
+            )
+
             if tool_call.function.name == "check_appointment_availability":
-
-                import json
-
-                arguments = json.loads(
-                    tool_call.function.arguments
-                )
 
                 result = check_appointment_availability(
                     date=arguments["date"],
                     preferred_time=arguments["preferred_time"]
                 )
 
-                # Give the tool result back to the LLM
-                conversation.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(result)
-                    }
+            elif tool_call.function.name == "book_appointment":
+
+                result = book_appointment(
+                    appointment_id=arguments["appointment_id"],
+                    patient_name=arguments["patient_name"]
                 )
 
-        # Ask the LLM to produce the final natural-language response
+            else:
+
+                result = {
+                    "success": False,
+                    "message": "Unknown tool requested."
+                }
+
+            # Add the tool result to the conversation
+            conversation.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": json.dumps(result)
+                }
+            )
+
+        # Ask the LLM to turn the tool result into
+        # a natural-language response
         final_response = ask_llm(conversation)
 
         response_text = final_response.content
 
     else:
-        # No tool was needed, so use the LLM's direct response
+
+        # No tool was needed
         response_text = response.content
 
-    # Save the final assistant response to conversation history
+    # Save the final assistant response
     conversation.append(
         {
             "role": "assistant",

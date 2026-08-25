@@ -64,9 +64,41 @@ TOOLS = [
                 ]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "book_appointment",
+            "description": (
+                "Book an available appointment slot for a patient. "
+                "Only use this tool when the user explicitly wants "
+                "to book an appointment."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "appointment_id": {
+                        "type": "integer",
+                        "description": (
+                            "The ID of the available appointment "
+                            "slot returned by the availability tool."
+                        )
+                    },
+                    "patient_name": {
+                        "type": "string",
+                        "description": (
+                            "The patient's name."
+                        )
+                    }
+                },
+                "required": [
+                    "appointment_id",
+                    "patient_name"
+                ]
+            }
+        }
     }
 ]
-
 
 def ask_llm(
     messages: list[dict],
