@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from app.rag import build_index, search_knowledge
 from app.llm import ask_llm, SYSTEM_PROMPT, TOOLS
 from app.tools import (
     check_appointment_availability,
@@ -13,29 +14,53 @@ from app.database import initialize_database, seed_appointments
 
 app = FastAPI(title="CareFlow AI")
 
+
+# --------------------------------------------------
+# DATABASE INITIALIZATION
+# --------------------------------------------------
+
 initialize_database()
 seed_appointments()
 
+
+# --------------------------------------------------
+# REQUEST MODELS
+# --------------------------------------------------
 
 class ChatRequest(BaseModel):
     conversation_id: str
     message: str
 
 
+# --------------------------------------------------
+# CONVERSATION MEMORY
+# --------------------------------------------------
+
 conversations: dict[str, list[dict]] = {}
+
+
+# --------------------------------------------------
+# HEALTH CHECK
+# --------------------------------------------------
 
 @app.get("/api/health")
 def health():
+
     return {
         "status": "healthy"
     }
 
 
+# --------------------------------------------------
+# CHAT ENDPOINT
+# --------------------------------------------------
+
 @app.post("/api/chat")
 def chat(request: ChatRequest):
 
-    # Create a new conversation if this ID does not exist
+    # Create a new conversation if this ID does not exist.
     if request.conversation_id not in conversations:
+
         conversations[request.conversation_id] = [
             {
                 "role": "system",
@@ -43,9 +68,12 @@ def chat(request: ChatRequest):
             }
         ]
 
-    conversation = conversations[request.conversation_id]
+    conversation = conversations[
+        request.conversation_id
+    ]
 
-    # Add the user's message to conversation history
+
+    # Add the user's message to conversation history.
     conversation.append(
         {
             "role": "user",
@@ -53,17 +81,22 @@ def chat(request: ChatRequest):
         }
     )
 
+
     # Ask the LLM whether it wants to answer directly
-    # or use one of our available tools
+    # or use one of our available tools.
     response = ask_llm(
         conversation,
         tools=TOOLS
     )
 
-    # If the LLM requested one or more tools
+
+    # --------------------------------------------------
+    # TOOL CALLING
+    # --------------------------------------------------
+
     if response.tool_calls:
 
-        # Store the assistant's tool request
+        # Store the assistant's tool request.
         conversation.append(
             {
                 "role": "assistant",
@@ -82,7 +115,8 @@ def chat(request: ChatRequest):
             }
         )
 
-        # Execute each requested tool
+
+        # Execute each requested tool.
         for tool_call in response.tool_calls:
 
             import json
@@ -91,25 +125,35 @@ def chat(request: ChatRequest):
                 tool_call.function.arguments
             )
 
-            if tool_call.function.name == "check_appointment_availability":
+
+            if tool_call.function.name == (
+                "check_appointment_availability"
+            ):
 
                 result = check_appointment_availability(
                     date=arguments["date"],
                     preferred_time=arguments["preferred_time"]
                 )
 
-            elif tool_call.function.name == "get_available_appointments":
+
+            elif tool_call.function.name == (
+                "get_available_appointments"
+            ):
 
                 result = get_available_appointments(
-                   date=arguments["date"]
-    )
+                    date=arguments["date"]
+                )
 
-            elif tool_call.function.name == "book_appointment":
+
+            elif tool_call.function.name == (
+                "book_appointment"
+            ):
 
                 result = book_appointment(
                     appointment_id=arguments["appointment_id"],
                     patient_name=arguments["patient_name"]
                 )
+
 
             else:
 
@@ -118,7 +162,8 @@ def chat(request: ChatRequest):
                     "message": "Unknown tool requested."
                 }
 
-            # Add the tool result to the conversation
+
+            # Add the tool result to conversation history.
             conversation.append(
                 {
                     "role": "tool",
@@ -127,18 +172,23 @@ def chat(request: ChatRequest):
                 }
             )
 
+
         # Ask the LLM to turn the tool result into
-        # a natural-language response
-        final_response = ask_llm(conversation)
+        # a natural-language response.
+        final_response = ask_llm(
+            conversation
+        )
 
         response_text = final_response.content
 
+
     else:
 
-        # No tool was needed
+        # No tool was needed.
         response_text = response.content
 
-    # Save the final assistant response
+
+    # Save the final assistant response.
     conversation.append(
         {
             "role": "assistant",
@@ -146,13 +196,42 @@ def chat(request: ChatRequest):
         }
     )
 
+
     return {
         "conversation_id": request.conversation_id,
         "response": response_text
     }
 
+
+# --------------------------------------------------
+# RAG ADMIN ENDPOINTS
+# --------------------------------------------------
+
+@app.post("/api/admin/build-rag")
+def build_rag():
+
+    return build_index()
+
+
+@app.post("/api/admin/search-rag")
+def search_rag(query: str):
+
+    return {
+        "results": search_knowledge(query)
+    }
+
+
+# --------------------------------------------------
+# STATIC FRONTEND
+# --------------------------------------------------
+
+# IMPORTANT:
+# Keep this AFTER all API routes.
 app.mount(
     "/",
-    StaticFiles(directory="static", html=True),
+    StaticFiles(
+        directory="static",
+        html=True
+    ),
     name="static"
 )
