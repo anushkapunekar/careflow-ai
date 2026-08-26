@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>CareFlow AI</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        #startButton {
+            background: #2563eb;
+            color: white;
+        }
+
+        #stopButton {
+            background: #dc2626;
+            color: white;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #status {
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        #conversation {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            min-height: 300px;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        .user {
+            background: #e0ecff;
+        }
+
+        .assistant {
+            background: #e8f5e9;
+        }
+
+        .label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>CareFlow AI</h1>
+
+    <div class="subtitle">
+        AI Voice Receptionist Prototype
+    </div>
+
+    <div class="controls">
+
+        <button id="startButton">
+            🎙️ Start Talking
+        </button>
+
+        <button id="stopButton" disabled>
+            ⏹ Stop
+        </button>
+
+    </div>
+
+    <div id="status">
+        Ready.
+    </div>
+
+    <div id="conversation"></div>
+
+
+    <script>
+
+        const startButton =
+            document.getElementById("startButton");
+
+        const stopButton =
+            document.getElementById("stopButton");
+
+        const status =
+            document.getElementById("status");
+
+        const conversation =
+            document.getElementById("conversation");
+
+
+        // Each browser session gets its own conversation ID.
+        const conversationId =
+            "voice-" + crypto.randomUUID();
+
+
+        // --------------------------------------------------
+        // SPEECH RECOGNITION
+        // --------------------------------------------------
+
+        const SpeechRecognition =
+            window.SpeechRecognition ||
+            window.webkitSpeechRecognition;
+
+
+        if (!SpeechRecognition) {
+
+            status.textContent =
+                "Speech recognition is not supported in this browser.";
+
+            startButton.disabled = true;
+        }
+
+
+        const recognition =
+            SpeechRecognition
+                ? new SpeechRecognition()
+                : null;
+
+
+        if (recognition) {
+
+            recognition.lang = "en-US";
+
+            recognition.interimResults = false;
+
+            recognition.continuous = false;
+
+
+            recognition.onstart = () => {
+
+                status.textContent =
+                    "Listening... Speak now.";
+
+                startButton.disabled = true;
+
+                stopButton.disabled = false;
+            };
+
+
+            recognition.onresult = async (event) => {
+
+                const transcript =
+                    event.results[0][0].transcript;
+
+
+                addMessage(
+                    "You",
+                    transcript,
+                    "user"
+                );
+
+
+                status.textContent =
+                    "Thinking...";
+
+
+                await sendToAgent(transcript);
+            };
+
+
+            recognition.onerror = (event) => {
+
+                console.error(
+                    "Speech recognition error:",
+                    event.error
+                );
+
+                status.textContent =
+                    "Speech recognition error: " +
+                    event.error;
+
+                startButton.disabled = false;
+
+                stopButton.disabled = true;
+            };
+
+
+            recognition.onend = () => {
+
+                startButton.disabled = false;
+
+                stopButton.disabled = true;
+            };
+        }
+
+
+        startButton.addEventListener(
+            "click",
+            () => {
+
+                if (recognition) {
+
+                    window.speechSynthesis.cancel();
+
+                    recognition.start();
+                }
+            }
+        );
+
+
+        stopButton.addEventListener(
+            "click",
+            () => {
+
+                if (recognition) {
+
+                    recognition.stop();
+                }
+            }
+        );
+
+
+        // --------------------------------------------------
+        // SEND MESSAGE TO CAREFLOW AGENT
+        // --------------------------------------------------
+
+        async function sendToAgent(message) {
+
+            try {
+
+                const response =
+                    await fetch(
+                        "/api/chat",
+                        {
+                            method: "POST",
+
+                            headers: {
+                                "Content-Type":
+                                    "application/json"
+                            },
+
+                            body: JSON.stringify({
+                                conversation_id:
+                                    conversationId,
+
+                                message:
+                                    message
+                            })
+                        }
+                    );
+
+
+                if (!response.ok) {
+
+                    throw new Error(
+                        `Agent API returned ${response.status}`
+                    );
+                }
+
+
+                const data =
+                    await response.json();
+
+
+                const reply =
+                    data.response;
+
+
+                if (!reply) {
+
+                    throw new Error(
+                        "Agent returned an empty response."
+                    );
+                }
+
+
+                addMessage(
+                    "CareFlow AI",
+                    reply,
+                    "assistant"
+                );
+
+
+                speak(reply);
+
+
+                status.textContent =
+                    "Ready for your next message.";
+
+
+            } catch (error) {
+
+                console.error(
+                    "Agent request failed:",
+                    error
+                );
+
+                status.textContent =
+                    "Could not connect to CareFlow AI.";
+            }
+        }
+
+
+        // --------------------------------------------------
+        // TEXT-TO-SPEECH
+        // --------------------------------------------------
+
+        let selectedVoice = null;
+
+
+        function loadVoice() {
+
+            const voices =
+                window.speechSynthesis.getVoices();
+
+
+            if (!voices.length) {
+                return;
+            }
+
+
+            // Preferred natural/female English voices.
+            const preferredVoices = [
+                "Microsoft Jenny",
+                "Microsoft Aria",
+                "Microsoft Zira",
+                "Google UK English Female",
+                "Google US English Female",
+                "Samantha"
+            ];
+
+
+            // First try exact/preferred voice names.
+            for (const preferred of preferredVoices) {
+
+                const match =
+                    voices.find(
+                        voice =>
+                            voice.name
+                                .toLowerCase()
+                                .includes(
+                                    preferred.toLowerCase()
+                                )
+                    );
+
+
+                if (match) {
+
+                    selectedVoice = match;
+
+                    console.log(
+                        "Selected voice:",
+                        selectedVoice.name
+                    );
+
+                    return;
+                }
+            }
+
+
+            // Second fallback:
+            // Find an English voice whose name
+            // commonly corresponds to a female voice.
+            selectedVoice =
+                voices.find(
+                    voice =>
+                        voice.lang.startsWith("en") &&
+                        /female|zira|jenny|samantha|aria|sonia/i.test(
+                            voice.name
+                        )
+                );
+
+
+            if (selectedVoice) {
+
+                console.log(
+                    "Selected fallback voice:",
+                    selectedVoice.name
+                );
+
+                return;
+            }
+
+
+            // Final fallback:
+            // Use any available English voice.
+            selectedVoice =
+                voices.find(
+                    voice =>
+                        voice.lang.startsWith("en")
+                );
+
+
+            if (selectedVoice) {
+
+                console.log(
+                    "Selected English voice:",
+                    selectedVoice.name
+                );
+            }
+        }
+
+
+        // Some browsers load voices asynchronously.
+        window.speechSynthesis.onvoiceschanged =
+            loadVoice;
+
+
+        loadVoice();
+
+
+        function speak(text) {
+
+            if (!text) {
+                return;
+            }
+
+
+            window.speechSynthesis.cancel();
+
+
+            const utterance =
+                new SpeechSynthesisUtterance(text);
+
+
+            if (selectedVoice) {
+
+                utterance.voice =
+                    selectedVoice;
+            }
+
+
+            utterance.lang =
+                "en-US";
+
+
+            // Slightly slower and warmer
+            // than the default browser delivery.
+            utterance.rate =
+                0.92;
+
+            utterance.pitch =
+                1.08;
+
+            utterance.volume =
+                1.0;
+
+
+            utterance.onstart = () => {
+
+                status.textContent =
+                    "CareFlow AI is speaking...";
+            };
+
+
+            utterance.onend = () => {
+
+                status.textContent =
+                    "Ready for your next message.";
+            };
+
+
+            utterance.onerror = (event) => {
+
+                console.error(
+                    "Speech synthesis error:",
+                    event
+                );
+
+                status.textContent =
+                    "Voice output failed.";
+            };
+
+
+            window.speechSynthesis.speak(
+                utterance
+            );
+        }
+
+
+        // --------------------------------------------------
+        // DISPLAY CONVERSATION
+        // --------------------------------------------------
+
+        function addMessage(
+            sender,
+            text,
+            className
+        ) {
+
+            const message =
+                document.createElement("div");
+
+
+            message.className =
+                "message " + className;
+
+
+            const label =
+                document.createElement("div");
+
+            label.className =
+                "label";
+
+            label.textContent =
+                sender;
+
+
+            const content =
+                document.createElement("div");
+
+            // IMPORTANT:
+            // Use textContent instead of innerHTML.
+            // This prevents model-generated HTML/JS
+            // from being executed in the browser.
+            content.textContent =
+                text;
+
+
+            message.appendChild(label);
+
+            message.appendChild(content);
+
+
+            conversation.appendChild(message);
+
+
+            conversation.scrollTop =
+                conversation.scrollHeight;
+        }
+
+    </script>
+
+</body>
+
+</html>

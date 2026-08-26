@@ -1,9 +1,11 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.llm import ask_llm, SYSTEM_PROMPT, TOOLS
 from app.tools import (
     check_appointment_availability,
+    get_available_appointments,
     book_appointment
 )
 from app.database import initialize_database, seed_appointments
@@ -22,22 +24,14 @@ class ChatRequest(BaseModel):
 
 conversations: dict[str, list[dict]] = {}
 
-
-@app.get("/")
-def root():
-    return {
-        "message": "CareFlow AI is running!"
-    }
-
-
-@app.get("/health")
+@app.get("/api/health")
 def health():
     return {
         "status": "healthy"
     }
 
 
-@app.post("/chat")
+@app.post("/api/chat")
 def chat(request: ChatRequest):
 
     # Create a new conversation if this ID does not exist
@@ -104,6 +98,12 @@ def chat(request: ChatRequest):
                     preferred_time=arguments["preferred_time"]
                 )
 
+            elif tool_call.function.name == "get_available_appointments":
+
+                result = get_available_appointments(
+                   date=arguments["date"]
+    )
+
             elif tool_call.function.name == "book_appointment":
 
                 result = book_appointment(
@@ -150,3 +150,9 @@ def chat(request: ChatRequest):
         "conversation_id": request.conversation_id,
         "response": response_text
     }
+
+app.mount(
+    "/",
+    StaticFiles(directory="static", html=True),
+    name="static"
+)
