@@ -1,3 +1,5 @@
+import json
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -119,12 +121,14 @@ def chat(request: ChatRequest):
         # Execute each requested tool.
         for tool_call in response.tool_calls:
 
-            import json
-
             arguments = json.loads(
                 tool_call.function.arguments
             )
 
+
+            # --------------------------------------------------
+            # CHECK SPECIFIC APPOINTMENT
+            # --------------------------------------------------
 
             if tool_call.function.name == (
                 "check_appointment_availability"
@@ -136,6 +140,10 @@ def chat(request: ChatRequest):
                 )
 
 
+            # --------------------------------------------------
+            # GET AVAILABLE APPOINTMENTS
+            # --------------------------------------------------
+
             elif tool_call.function.name == (
                 "get_available_appointments"
             ):
@@ -144,6 +152,10 @@ def chat(request: ChatRequest):
                     date=arguments["date"]
                 )
 
+
+            # --------------------------------------------------
+            # BOOK APPOINTMENT
+            # --------------------------------------------------
 
             elif tool_call.function.name == (
                 "book_appointment"
@@ -154,6 +166,45 @@ def chat(request: ChatRequest):
                     patient_name=arguments["patient_name"]
                 )
 
+
+            # --------------------------------------------------
+            # SEARCH CLINIC KNOWLEDGE
+            # --------------------------------------------------
+
+            elif tool_call.function.name == (
+                "search_clinic_knowledge"
+            ):
+
+                results = search_knowledge(
+                    query=arguments["query"]
+                )
+
+                if results:
+
+                    result = {
+                        "found": True,
+                        "results": results
+                    }
+
+                else:
+
+                    result = {
+                        "found": False,
+                        "results": [],
+                        "message": (
+                            "No sufficiently relevant information "
+                            "was found in the clinic knowledge base. "
+                            "Do not answer this clinic-specific "
+                            "question from general knowledge. "
+                            "Tell the user that the information "
+                            "is not currently available."
+                        )
+                    }
+
+
+            # --------------------------------------------------
+            # UNKNOWN TOOL
+            # --------------------------------------------------
 
             else:
 
@@ -173,8 +224,10 @@ def chat(request: ChatRequest):
             )
 
 
-        # Ask the LLM to turn the tool result into
-        # a natural-language response.
+        # --------------------------------------------------
+        # FINAL LLM RESPONSE
+        # --------------------------------------------------
+
         final_response = ask_llm(
             conversation
         )
@@ -188,7 +241,10 @@ def chat(request: ChatRequest):
         response_text = response.content
 
 
-    # Save the final assistant response.
+    # --------------------------------------------------
+    # SAVE ASSISTANT RESPONSE
+    # --------------------------------------------------
+
     conversation.append(
         {
             "role": "assistant",
@@ -225,7 +281,6 @@ def search_rag(query: str):
 # STATIC FRONTEND
 # --------------------------------------------------
 
-# IMPORTANT:
 # Keep this AFTER all API routes.
 app.mount(
     "/",

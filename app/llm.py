@@ -6,10 +6,15 @@ from groq import Groq
 
 load_dotenv()
 
+
 client = Groq(
     api_key=os.getenv("GROQ_API_KEY")
 )
 
+
+# --------------------------------------------------
+# SYSTEM PROMPT
+# --------------------------------------------------
 
 SYSTEM_PROMPT = (
     "You are CareFlow AI, a professional, warm and friendly "
@@ -77,6 +82,33 @@ SYSTEM_PROMPT = (
     "Do not expose internal appointment IDs to the user "
     "unless necessary. "
 
+    "CLINIC KNOWLEDGE RULES: "
+
+    "When the user asks for clinic-specific information such as "
+    "hours, policies, services, procedures, or other information "
+    "that is not provided by the appointment tools, use the "
+    "search_clinic_knowledge tool. "
+
+    "Do not answer clinic-specific questions from general knowledge "
+    "when the knowledge base should be consulted. "
+
+    "Treat retrieved knowledge-base content as the trusted source "
+    "for clinic-specific information. "
+
+    "If the knowledge base does not contain enough relevant "
+    "information to answer the question, say only that the "
+    "information is not currently available. "
+    "Do not guess, speculate, or provide examples of what might "
+    "be required. "
+    "Do not suggest calling the clinic, contacting staff, using "
+    "a patient portal, contacting a provider, joining a waitlist, "
+    "requesting a callback, or using any other external channel "
+    "unless that capability is explicitly provided by the "
+    "application or knowledge base. "
+    "When clinic-specific information is unavailable, do not "
+    "add recommendations or alternatives. Keep the response "
+    "brief and factual. "
+
     "VOICE CONVERSATION RULES: "
 
     "Speak naturally like a warm, professional human receptionist. "
@@ -102,7 +134,16 @@ SYSTEM_PROMPT = (
 )
 
 
+# --------------------------------------------------
+# TOOLS
+# --------------------------------------------------
+
 TOOLS = [
+
+    # --------------------------------------------------
+    # CHECK SPECIFIC APPOINTMENT
+    # --------------------------------------------------
+
     {
         "type": "function",
         "function": {
@@ -140,6 +181,11 @@ TOOLS = [
         }
     },
 
+
+    # --------------------------------------------------
+    # GET AVAILABLE APPOINTMENTS
+    # --------------------------------------------------
+
     {
         "type": "function",
         "function": {
@@ -171,6 +217,11 @@ TOOLS = [
             }
         }
     },
+
+
+    # --------------------------------------------------
+    # BOOK APPOINTMENT
+    # --------------------------------------------------
 
     {
         "type": "function",
@@ -209,14 +260,58 @@ TOOLS = [
                 ]
             }
         }
+    },
+
+
+    # --------------------------------------------------
+    # SEARCH CLINIC KNOWLEDGE
+    # --------------------------------------------------
+
+    {
+        "type": "function",
+        "function": {
+            "name": "search_clinic_knowledge",
+            "description": (
+                "Search the trusted CareFlow clinic knowledge "
+                "base for information about clinic hours, "
+                "policies, services, procedures, and other "
+                "clinic-specific information. "
+                "Use this tool whenever the user asks about "
+                "clinic information that is not provided by "
+                "the appointment tools. "
+                "Never guess clinic-specific information when "
+                "this tool can be used."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "The user's question or information "
+                            "request to search for in the clinic "
+                            "knowledge base."
+                        )
+                    }
+                },
+                "required": [
+                    "query"
+                ]
+            }
+        }
     }
 ]
 
+
+# --------------------------------------------------
+# LLM CALL
+# --------------------------------------------------
 
 def ask_llm(
     messages: list[dict],
     tools: list[dict] | None = None
 ):
+
     response = client.chat.completions.create(
         model="openai/gpt-oss-20b",
         messages=messages,

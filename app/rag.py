@@ -244,7 +244,8 @@ def load_chunks() -> list[str]:
 
 def search_knowledge(
     query: str,
-    top_k: int = 3
+    top_k: int = 3,
+    relevance_threshold: float = 0.50
 ) -> list[dict]:
 
     index = load_index()
@@ -259,8 +260,6 @@ def search_knowledge(
         query_embedding
     )
 
-    # Never ask FAISS for more results
-    # than the number of stored chunks.
     top_k = min(
         top_k,
         index.ntotal
@@ -281,9 +280,15 @@ def search_knowledge(
         if index_id < 0:
             continue
 
+        score = float(score)
+
+        # Ignore weak semantic matches.
+        if score < relevance_threshold:
+            continue
+
         results.append(
             {
-                "score": float(score),
+                "score": score,
                 "content": chunks[index_id]
             }
         )
