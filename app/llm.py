@@ -4,17 +4,41 @@ from dotenv import load_dotenv
 from groq import Groq
 
 
+# ==================================================
+# ENVIRONMENT CONFIGURATION
+# ==================================================
+
 load_dotenv()
 
 
-client = Groq(
-    api_key=os.getenv("GROQ_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+if not GROQ_API_KEY:
+    raise RuntimeError(
+        "GROQ_API_KEY is not configured. "
+        "Add it to the project's .env file."
+    )
+
+
+LLM_MODEL = os.getenv(
+    "CARE_FLOW_MODEL",
+    "openai/gpt-oss-20b"
 )
 
 
-# --------------------------------------------------
+# ==================================================
+# GROQ CLIENT
+# ==================================================
+
+client = Groq(
+    api_key=GROQ_API_KEY,
+    timeout=30.0
+)
+
+
+# ==================================================
 # SYSTEM PROMPT
-# --------------------------------------------------
+# ==================================================
 
 SYSTEM_PROMPT = (
     "You are CareFlow AI, a professional, warm and friendly "
@@ -192,9 +216,9 @@ SYSTEM_PROMPT = (
 )
 
 
-# --------------------------------------------------
+# ==================================================
 # TOOLS
-# --------------------------------------------------
+# ==================================================
 
 TOOLS = [
 
@@ -361,9 +385,9 @@ TOOLS = [
 ]
 
 
-# --------------------------------------------------
+# ==================================================
 # LLM CALL
-# --------------------------------------------------
+# ==================================================
 
 def ask_llm(
     messages: list[dict],
@@ -371,7 +395,7 @@ def ask_llm(
 ):
 
     response = client.chat.completions.create(
-        model="openai/gpt-oss-20b",
+        model=LLM_MODEL,
         messages=messages,
         tools=tools,
         tool_choice="auto",

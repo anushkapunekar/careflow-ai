@@ -632,7 +632,8 @@ def chat(request: ChatRequest):
 
         final_response = ask_llm(
 
-            conversation
+            conversation,
+            tools=TOOLS
 
         )
 
