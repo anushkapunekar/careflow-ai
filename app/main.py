@@ -417,66 +417,118 @@ def chat(request: ChatRequest):
                 "book_appointment"
             ):
 
-                appointment_id = arguments[
+                appointment_id = arguments.get(
                     "appointment_id"
-                ]
+                )
 
-                patient_name = arguments[
+                patient_name = arguments.get(
                     "patient_name"
-                ]
+                )
 
 
                 # --------------------------------------------------
-                # SECURITY CHECK
+                # SECURITY: VALIDATE PATIENT NAME
                 # --------------------------------------------------
                 #
-                # Only allow booking if this appointment ID
-                # was previously returned as available during
-                # this conversation.
+                # Never allow the LLM to invent a placeholder,
+                # default, or missing patient name.
                 #
 
-                if appointment_id not in available_slots[
-                    request.conversation_id
-                ]:
+                invalid_names = {
+                    "",
+                    "john doe",
+                    "patient",
+                    "patient name",
+                    "[patient_name]",
+                    "[to be provided by user]",
+                    "unknown",
+                    "n/a",
+                    "na",
+                    "none",
+                    "null"
+                }
+
+
+                if (
+                    not isinstance(patient_name, str)
+                    or not patient_name.strip()
+                    or patient_name.strip().lower()
+                    in invalid_names
+                ):
 
                     result = {
 
                         "success": False,
 
                         "message": (
-                            "This appointment slot has not "
-                            "been confirmed as available."
+                            "A valid patient name must be "
+                            "provided by the user before "
+                            "the appointment can be booked."
                         )
 
                     }
 
 
+                # --------------------------------------------------
+                # VALID PATIENT NAME
+                # --------------------------------------------------
+
                 else:
 
-                    # --------------------------------------------------
-                    # ACTUALLY BOOK THE APPOINTMENT
-                    # --------------------------------------------------
-
-                    result = book_appointment(
-
-                        appointment_id=appointment_id,
-
-                        patient_name=patient_name
-
-                    )
+                    patient_name = patient_name.strip()
 
 
                     # --------------------------------------------------
-                    # REMOVE SLOT AFTER SUCCESSFUL BOOKING
+                    # SECURITY: VALIDATE AVAILABLE SLOT
                     # --------------------------------------------------
+                    #
+                    # Only allow booking if this appointment ID
+                    # was previously returned as available during
+                    # this conversation.
+                    #
 
-                    if result.get("success"):
+                    if appointment_id not in available_slots[
+                        request.conversation_id
+                    ]:
 
-                        available_slots[
-                            request.conversation_id
-                        ].discard(
-                            appointment_id
+                        result = {
+
+                            "success": False,
+
+                            "message": (
+                                "This appointment slot has not "
+                                "been confirmed as available."
+                            )
+
+                        }
+
+
+                    else:
+
+                        # --------------------------------------------------
+                        # ACTUALLY BOOK THE APPOINTMENT
+                        # --------------------------------------------------
+
+                        result = book_appointment(
+
+                            appointment_id=appointment_id,
+
+                            patient_name=patient_name
+
                         )
+
+
+                        # --------------------------------------------------
+                        # REMOVE SLOT AFTER SUCCESSFUL BOOKING
+                        # --------------------------------------------------
+
+                        if result.get("success"):
+
+                            available_slots[
+                                request.conversation_id
+                            ].discard(
+                                appointment_id
+                            )
 
 
             # ==================================================

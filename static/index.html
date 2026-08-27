@@ -965,7 +965,7 @@
 
             cleaned =
                 cleaned.replace(
-                    /^[•\-]\s*/gm,
+                    /^[•*\-]\s*/gm,
                     ""
                 );
 
@@ -1077,189 +1077,221 @@
 
         function speak(text) {
 
-            if (!text) {
+    if (!text) {
+        return;
+    }
 
-                return;
-            }
+    let speechText =
+        cleanTextForSpeech(text);
 
+    if (!speechText) {
+        return;
+    }
 
-            const speechText =
-                cleanTextForSpeech(text);
+    // Stop previous speech.
+    window.speechSynthesis.cancel();
 
+    isSpeaking = true;
 
-            if (!speechText) {
+    startButton.disabled = true;
+    stopButton.disabled = false;
 
-                return;
-            }
-
-
-            /*
-             * Stop any previous speech.
-             */
-
-            window.speechSynthesis.cancel();
-
-
-            isSpeaking =
-                true;
+    status.textContent =
+        "CareFlow AI is speaking...";
 
 
-            startButton.disabled =
-                true;
+    // ==================================================
+    // NATURAL CONVERSATIONAL PAUSES
+    // ==================================================
+    //
+    // Add tiny pauses only after conversational
+    // opening phrases.
+    //
+    // IMPORTANT:
+    // We do NOT add pauses after every comma or period.
+    // This prevents problems such as:
+    //
+    // "5 a.m." -> "5 ... a ... m"
+    //
+    // or:
+    //
+    // "10:30 a.m." -> awkward pauses.
+    //
+
+    speechText =
+        speechText.replace(
+            /^(Wonderful)[—–-]\s*/i,
+            "$1... "
+        );
+
+    speechText =
+        speechText.replace(
+            /^(Absolutely)[!,.]?\s*/i,
+            "$1... "
+        );
+
+    speechText =
+        speechText.replace(
+            /^(Great)[!,.]?\s*/i,
+            "$1... "
+        );
+
+    speechText =
+        speechText.replace(
+            /^(Perfect)[!,.]?\s*/i,
+            "$1... "
+        );
+
+    speechText =
+        speechText.replace(
+            /^(Sure thing)[!,.]?\s*/i,
+            "$1... "
+        );
+
+    speechText =
+        speechText.replace(
+            /^(Of course)[!,.]?\s*/i,
+            "$1... "
+        );
 
 
-            /*
-             * Allow the Stop button to interrupt
-             * speech.
-             */
+    // ==================================================
+    // PROTECT COMMON ABBREVIATIONS
+    // ==================================================
+    //
+    // Prevent speech engines from treating the periods
+    // in a.m., p.m., Mr., Mrs., Dr., etc. as boundaries.
+    //
 
-            stopButton.disabled =
-                false;
+    speechText =
+        speechText
+            .replace(/\ba\.m\./gi, "a@@m@@")
+            .replace(/\bp\.m\./gi, "p@@m@@")
+            .replace(/\bMr\./g, "Mr@@")
+            .replace(/\bMrs\./g, "Mrs@@")
+            .replace(/\bMs\./g, "Ms@@")
+            .replace(/\bDr\./g, "Dr@@")
+            .replace(/\bSt\./g, "St@@");
 
+
+    // ==================================================
+    // RESTORE ABBREVIATIONS
+    // ==================================================
+
+    speechText =
+        speechText
+            .replace(/@@/g, ".");
+
+
+    // ==================================================
+    // CREATE ONE UTTERANCE
+    // ==================================================
+    //
+    // Keep the complete response as ONE utterance.
+    // This avoids artificial sentence-by-sentence gaps.
+    //
+
+    const utterance =
+        new SpeechSynthesisUtterance(
+            speechText
+        );
+
+
+    // ==================================================
+    // SELECTED VOICE
+    // ==================================================
+
+    if (selectedVoice) {
+
+        utterance.voice =
+            selectedVoice;
+    }
+
+    utterance.lang =
+        "en-US";
+
+
+    // ==================================================
+    // NATURAL DELIVERY
+    // ==================================================
+
+    utterance.rate =
+        0.94;
+
+    utterance.pitch =
+        1.03;
+
+    utterance.volume =
+        1.0;
+
+
+    // ==================================================
+    // SPEECH START
+    // ==================================================
+
+    utterance.onstart =
+        () => {
 
             status.textContent =
                 "CareFlow AI is speaking...";
+        };
 
 
+    // ==================================================
+    // SPEECH FINISHED
+    // ==================================================
 
-            // ==================================================
-            // ONE UTTERANCE
-            // ==================================================
+    utterance.onend =
+        () => {
 
-            /*
-             * Speak the complete response as ONE
-             * utterance.
-             *
-             * This avoids artificial pauses between
-             * individual sentences.
-             */
+            isSpeaking =
+                false;
 
-            const utterance =
-                new SpeechSynthesisUtterance(
-                    speechText
-                );
+            startButton.disabled =
+                false;
 
+            stopButton.disabled =
+                true;
 
-
-            // ==================================================
-            // SELECTED VOICE
-            // ==================================================
-
-            if (selectedVoice) {
-
-                utterance.voice =
-                    selectedVoice;
-            }
+            status.textContent =
+                "Ready for your next message.";
+        };
 
 
-            utterance.lang =
-                "en-US";
+    // ==================================================
+    // SPEECH ERROR
+    // ==================================================
 
+    utterance.onerror =
+        (event) => {
 
-
-            // ==================================================
-            // NATURAL DELIVERY
-            // ==================================================
-
-            /*
-             * Slightly slower than default speech,
-             * while still sounding conversational.
-             */
-
-            utterance.rate =
-                0.92;
-
-
-            /*
-             * Keep the pitch close to the
-             * selected voice's natural range.
-             */
-
-            utterance.pitch =
-                1.03;
-
-
-            utterance.volume =
-                1.0;
-
-
-
-            // ==================================================
-            // SPEECH STARTED
-            // ==================================================
-
-            utterance.onstart =
-                () => {
-
-                    status.textContent =
-                        "CareFlow AI is speaking...";
-                };
-
-
-
-            // ==================================================
-            // SPEECH FINISHED
-            // ==================================================
-
-            utterance.onend =
-                () => {
-
-                    isSpeaking =
-                        false;
-
-
-                    startButton.disabled =
-                        false;
-
-
-                    stopButton.disabled =
-                        true;
-
-
-                    status.textContent =
-                        "Ready for your next message.";
-                };
-
-
-
-            // ==================================================
-            // SPEECH ERROR
-            // ==================================================
-
-            utterance.onerror =
-                (event) => {
-
-                    console.error(
-                        "Speech synthesis error:",
-                        event
-                    );
-
-
-                    isSpeaking =
-                        false;
-
-
-                    startButton.disabled =
-                        false;
-
-
-                    stopButton.disabled =
-                        true;
-
-
-                    status.textContent =
-                        "Voice output failed.";
-                };
-
-
-            /*
-             * Start speaking.
-             */
-
-            window.speechSynthesis.speak(
-                utterance
+            console.error(
+                "Speech synthesis error:",
+                event
             );
-        }
+
+            isSpeaking =
+                false;
+
+            startButton.disabled =
+                false;
+
+            stopButton.disabled =
+                true;
+
+            status.textContent =
+                "Voice output failed.";
+        };
+
+
+    // ==================================================
+    // START SPEAKING
+    // ==================================================
+
+    window.speechSynthesis.speak(
+        utterance
+    );
+}
 
 
 
