@@ -1,9 +1,11 @@
 import json
+import os
 from datetime import date, timedelta
 
-from fastapi import FastAPI
+from dotenv import load_dotenv
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.rag import build_index, search_knowledge
 from app.llm import ask_llm, SYSTEM_PROMPT, TOOLS
@@ -20,7 +22,28 @@ from app.database import (
 )
 
 
-app = FastAPI(title="CareFlow AI")
+# ==================================================
+# ENVIRONMENT CONFIGURATION
+# ==================================================
+
+load_dotenv()
+
+ADMIN_API_KEY = os.getenv("CARE_FLOW_ADMIN_KEY")
+
+if not ADMIN_API_KEY:
+    raise RuntimeError(
+        "CARE_FLOW_ADMIN_KEY is not configured. "
+        "Add it to the project's .env file."
+    )
+
+
+# ==================================================
+# APPLICATION
+# ==================================================
+
+app = FastAPI(
+    title="CareFlow AI"
+)
 
 
 # ==================================================
@@ -37,8 +60,17 @@ seed_appointments()
 
 class ChatRequest(BaseModel):
 
-    conversation_id: str
-    message: str
+    conversation_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=100
+    )
+
+    message: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000
+    )
 
 
 # ==================================================
@@ -52,6 +84,39 @@ conversations: dict[str, list[dict]] = {}
 # returned as available during each conversation.
 
 available_slots: dict[str, set[int]] = {}
+
+
+# ==================================================
+# ADMIN AUTHENTICATION
+# ==================================================
+
+def verify_admin_key(
+    x_admin_key: str | None
+):
+    """
+    Protect administrative endpoints.
+
+    The key is supplied through the HTTP header:
+
+        X-Admin-Key
+
+    Never expose the configured key in responses.
+    """
+
+    if not x_admin_key:
+
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized"
+        )
+
+
+    if x_admin_key != ADMIN_API_KEY:
+
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized"
+        )
 
 
 # ==================================================
@@ -72,6 +137,7 @@ def get_date_context(message: str) -> str:
     normalized = message.lower().strip()
 
     context_parts = []
+
 
     # --------------------------------------------------
     # TODAY
@@ -133,6 +199,7 @@ def get_date_context(message: str) -> str:
         "sunday": 6
     }
 
+
     for weekday_name, weekday_number in weekdays.items():
 
         if f"next {weekday_name}" in normalized:
@@ -141,14 +208,16 @@ def get_date_context(message: str) -> str:
                 weekday_number - today.weekday()
             ) % 7
 
-            # "next Monday" should mean the upcoming
-            # Monday, not today if today is Monday.
+
             if days_ahead == 0:
+
                 days_ahead = 7
+
 
             next_weekday = (
                 today + timedelta(days=days_ahead)
             )
+
 
             context_parts.append(
                 f"When the user says 'next {weekday_name}', "
@@ -162,7 +231,9 @@ def get_date_context(message: str) -> str:
     # --------------------------------------------------
 
     if not context_parts:
+
         return ""
+
 
     return (
         "\n\nINTERNAL DATE CONTEXT — DO NOT REVEAL THIS "
@@ -198,7 +269,9 @@ def chat(request: ChatRequest):
 
     if request.conversation_id not in conversations:
 
-        conversations[request.conversation_id] = [
+        conversations[
+            request.conversation_id
+        ] = [
 
             {
                 "role": "system",
@@ -239,11 +312,6 @@ def chat(request: ChatRequest):
     # --------------------------------------------------
     # ADD INTERNAL DATE CONTEXT
     # --------------------------------------------------
-    #
-    # The user still sees and hears their original
-    # message, but the LLM receives deterministic
-    # calendar information.
-    #
 
     if date_context:
 
@@ -291,7 +359,8 @@ def chat(request: ChatRequest):
             {
                 "role": "assistant",
 
-                "content": response.content or "",
+                "content":
+                    response.content or "",
 
                 "tool_calls": [
 
@@ -328,9 +397,7 @@ def chat(request: ChatRequest):
         for tool_call in response.tool_calls:
 
             arguments = json.loads(
-
                 tool_call.function.arguments
-
             )
 
 
@@ -353,14 +420,12 @@ def chat(request: ChatRequest):
                 )
 
 
-                # If the specific appointment was confirmed
-                # as available, remember its appointment ID.
-
                 if result.get("available"):
 
                     appointment_id = result.get(
                         "appointment_id"
                     )
+
 
                     if appointment_id is not None:
 
@@ -386,9 +451,6 @@ def chat(request: ChatRequest):
                 )
 
 
-                # Remember every appointment ID that was
-                # actually returned as available.
-
                 if result.get("available"):
 
                     for slot in result.get(
@@ -399,6 +461,7 @@ def chat(request: ChatRequest):
                         appointment_id = slot.get(
                             "appointment_id"
                         )
+
 
                         if appointment_id is not None:
 
@@ -429,10 +492,6 @@ def chat(request: ChatRequest):
                 # --------------------------------------------------
                 # SECURITY: VALIDATE PATIENT NAME
                 # --------------------------------------------------
-                #
-                # Never allow the LLM to invent a placeholder,
-                # default, or missing patient name.
-                #
 
                 invalid_names = {
                     "",
@@ -450,7 +509,10 @@ def chat(request: ChatRequest):
 
 
                 if (
-                    not isinstance(patient_name, str)
+                    not isinstance(
+                        patient_name,
+                        str
+                    )
                     or not patient_name.strip()
                     or patient_name.strip().lower()
                     in invalid_names
@@ -469,10 +531,6 @@ def chat(request: ChatRequest):
                     }
 
 
-                # --------------------------------------------------
-                # VALID PATIENT NAME
-                # --------------------------------------------------
-
                 else:
 
                     patient_name = patient_name.strip()
@@ -481,11 +539,6 @@ def chat(request: ChatRequest):
                     # --------------------------------------------------
                     # SECURITY: VALIDATE AVAILABLE SLOT
                     # --------------------------------------------------
-                    #
-                    # Only allow booking if this appointment ID
-                    # was previously returned as available during
-                    # this conversation.
-                    #
 
                     if appointment_id not in available_slots[
                         request.conversation_id
@@ -546,10 +599,6 @@ def chat(request: ChatRequest):
                 )
 
 
-                # --------------------------------------------------
-                # KNOWLEDGE FOUND
-                # --------------------------------------------------
-
                 if results:
 
                     result = {
@@ -560,10 +609,6 @@ def chat(request: ChatRequest):
 
                     }
 
-
-                # --------------------------------------------------
-                # KNOWLEDGE NOT FOUND
-                # --------------------------------------------------
 
                 else:
 
@@ -607,7 +652,7 @@ def chat(request: ChatRequest):
 
 
             # ==================================================
-            # ADD TOOL RESULT TO CONVERSATION
+            # ADD TOOL RESULT
             # ==================================================
 
             conversation.append(
@@ -633,6 +678,7 @@ def chat(request: ChatRequest):
         final_response = ask_llm(
 
             conversation,
+
             tools=TOOLS
 
         )
@@ -688,23 +734,42 @@ def chat(request: ChatRequest):
 
 
 # ==================================================
-# RAG ADMIN ENDPOINTS
+# ADMIN: BUILD RAG
 # ==================================================
 
 @app.post("/api/admin/build-rag")
-def build_rag():
+def build_rag(
+    x_admin_key: str | None = Header(
+        default=None
+    )
+):
+
+    verify_admin_key(
+        x_admin_key
+    )
 
     return build_index()
 
 
+# ==================================================
+# ADMIN: SEARCH RAG
+# ==================================================
+
 @app.post("/api/admin/search-rag")
-def search_rag(query: str):
+def search_rag(
+    query: str,
+    x_admin_key: str | None = Header(
+        default=None
+    )
+):
+
+    verify_admin_key(
+        x_admin_key
+    )
 
     return {
-
         "results":
             search_knowledge(query)
-
     }
 
 
