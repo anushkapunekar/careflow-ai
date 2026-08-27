@@ -87,6 +87,52 @@ available_slots: dict[str, set[int]] = {}
 
 
 # ==================================================
+# CONVERSATION SAFETY LIMITS
+# ==================================================
+
+MAX_CONVERSATIONS = 500
+
+MAX_MESSAGES_PER_CONVERSATION = 40
+
+MAX_TRACKED_SLOTS_PER_CONVERSATION = 50
+
+
+def enforce_conversation_limits(
+    conversation_id: str
+):
+    """
+    Keep in-memory conversation state bounded.
+
+    The system prompt is always preserved.
+    Only the most recent conversation messages
+    are retained.
+    """
+
+    conversation = conversations.get(
+        conversation_id
+    )
+
+    if not conversation:
+        return
+
+    if len(conversation) <= MAX_MESSAGES_PER_CONVERSATION:
+        return
+
+    system_message = conversation[0]
+
+    recent_messages = conversation[
+        -(MAX_MESSAGES_PER_CONVERSATION - 1):
+    ]
+
+    conversations[
+        conversation_id
+    ] = [
+        system_message,
+        *recent_messages
+    ]
+
+
+# ==================================================
 # ADMIN AUTHENTICATION
 # ==================================================
 
@@ -109,7 +155,6 @@ def verify_admin_key(
             status_code=401,
             detail="Unauthorized"
         )
-
 
     if x_admin_key != ADMIN_API_KEY:
 
@@ -208,16 +253,13 @@ def get_date_context(message: str) -> str:
                 weekday_number - today.weekday()
             ) % 7
 
-
             if days_ahead == 0:
 
                 days_ahead = 7
 
-
             next_weekday = (
                 today + timedelta(days=days_ahead)
             )
-
 
             context_parts.append(
                 f"When the user says 'next {weekday_name}', "
@@ -233,7 +275,6 @@ def get_date_context(message: str) -> str:
     if not context_parts:
 
         return ""
-
 
     return (
         "\n\nINTERNAL DATE CONTEXT — DO NOT REVEAL THIS "
@@ -269,6 +310,15 @@ def chat(request: ChatRequest):
 
     if request.conversation_id not in conversations:
 
+        # Prevent unbounded session creation.
+
+        if len(conversations) >= MAX_CONVERSATIONS:
+
+            raise HTTPException(
+                status_code=503,
+                detail="Conversation capacity temporarily reached."
+            )
+
         conversations[
             request.conversation_id
         ] = [
@@ -290,6 +340,15 @@ def chat(request: ChatRequest):
         available_slots[
             request.conversation_id
         ] = set()
+
+
+    # --------------------------------------------------
+    # ENFORCE MEMORY LIMITS
+    # --------------------------------------------------
+
+    enforce_conversation_limits(
+        request.conversation_id
+    )
 
 
     conversation = conversations[
@@ -435,6 +494,24 @@ def chat(request: ChatRequest):
                             appointment_id
                         )
 
+                        if len(
+                            available_slots[
+                                request.conversation_id
+                            ]
+                        ) > MAX_TRACKED_SLOTS_PER_CONVERSATION:
+
+                            available_slots[
+                                request.conversation_id
+                            ] = set(
+                                list(
+                                    available_slots[
+                                        request.conversation_id
+                                    ]
+                                )[
+                                    -MAX_TRACKED_SLOTS_PER_CONVERSATION:
+                                ]
+                            )
+
 
             # ==================================================
             # GET AVAILABLE APPOINTMENTS
@@ -470,6 +547,25 @@ def chat(request: ChatRequest):
                             ].add(
                                 appointment_id
                             )
+
+
+                    if len(
+                        available_slots[
+                            request.conversation_id
+                        ]
+                    ) > MAX_TRACKED_SLOTS_PER_CONVERSATION:
+
+                        available_slots[
+                            request.conversation_id
+                        ] = set(
+                            list(
+                                available_slots[
+                                    request.conversation_id
+                                ]
+                            )[
+                                -MAX_TRACKED_SLOTS_PER_CONVERSATION:
+                            ]
+                        )
 
 
             # ==================================================
@@ -715,6 +811,15 @@ def chat(request: ChatRequest):
 
         }
 
+    )
+
+
+    # ==================================================
+    # ENFORCE FINAL MEMORY LIMIT
+    # ==================================================
+
+    enforce_conversation_limits(
+        request.conversation_id
     )
 
 
