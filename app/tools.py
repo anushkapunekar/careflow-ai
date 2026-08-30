@@ -1,4 +1,7 @@
-from app.database import get_connection
+from app.database import (
+    get_connection,
+    ensure_appointment_slots
+)
 
 
 # ==================================================
@@ -9,6 +12,8 @@ def check_appointment_availability(
     date: str,
     preferred_time: str
 ) -> dict:
+
+    ensure_appointment_slots(date)
 
     connection = get_connection()
 
@@ -76,6 +81,8 @@ def check_appointment_availability(
 def get_available_appointments(
     date: str
 ) -> dict:
+
+    ensure_appointment_slots(date)
 
     connection = get_connection()
 

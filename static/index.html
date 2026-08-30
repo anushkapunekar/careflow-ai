@@ -224,14 +224,6 @@
         // CONVERSATION ID
         // ==================================================
 
-        /*
-         * Every browser session receives a unique
-         * conversation ID.
-         *
-         * The backend uses this ID to maintain
-         * conversation history.
-         */
-
         const conversationId =
             "voice-" + crypto.randomUUID();
 
@@ -241,11 +233,40 @@
         // APPLICATION STATE
         // ==================================================
 
-        let isListening = false;
+        let isListening =
+            false;
 
-        let isSpeaking = false;
 
-        let selectedVoice = null;
+        let isSpeaking =
+            false;
+
+
+        let isProcessing =
+            false;
+
+
+        /*
+         * Tracks whether the user has started
+         * an active voice conversation.
+         *
+         * When true, CareFlow automatically
+         * reopens the microphone after speaking.
+         */
+
+        let voiceSessionActive =
+            false;
+
+
+        let selectedVoice =
+            null;
+
+
+        let speechPauseTimer =
+            null;
+
+
+        let speechGeneration =
+            0;
 
 
 
@@ -258,17 +279,13 @@
             window.webkitSpeechRecognition;
 
 
-        /*
-         * Check whether the browser supports
-         * speech recognition.
-         */
-
         if (!SpeechRecognition) {
 
             status.textContent =
                 "Speech recognition is not supported in this browser.";
 
-            startButton.disabled = true;
+            startButton.disabled =
+                true;
         }
 
 
@@ -293,45 +310,52 @@
                 false;
 
 
-            /*
-             * Process one spoken request at a time.
-             */
-
             recognition.continuous =
                 false;
 
 
 
-            // --------------------------------------------------
+            // ==================================================
             // RECOGNITION START
-            // --------------------------------------------------
+            // ==================================================
 
-            recognition.onstart = () => {
+            recognition.onstart =
+                () => {
 
-                isListening =
-                    true;
-
-
-                status.textContent =
-                    "Listening... Speak now.";
+                    isListening =
+                        true;
 
 
-                startButton.disabled =
-                    true;
+                    status.textContent =
+                        "Listening... Speak now.";
 
 
-                stopButton.disabled =
-                    false;
-            };
+                    startButton.disabled =
+                        true;
+
+
+                    stopButton.disabled =
+                        false;
+                };
 
 
 
-            // --------------------------------------------------
+            // ==================================================
             // SPEECH RESULT
-            // --------------------------------------------------
+            // ==================================================
 
             recognition.onresult =
                 async (event) => {
+
+                    /*
+                     * Prevent duplicate submissions.
+                     */
+
+                    if (isProcessing) {
+
+                        return;
+                    }
+
 
                     const transcript =
                         event.results[0][0]
@@ -345,9 +369,13 @@
                     }
 
 
-                    /*
-                     * Display what the user said.
-                     */
+                    isProcessing =
+                        true;
+
+
+                    isListening =
+                        false;
+
 
                     addMessage(
                         "You",
@@ -360,21 +388,50 @@
                         "Thinking...";
 
 
-                    /*
-                     * Send the transcript to
-                     * the CareFlow backend.
-                     */
-
                     await sendToAgent(
                         transcript
                     );
+
+
+                    isProcessing =
+                        false;
+
+
+                    /*
+                     * If speech has already finished,
+                     * allow the user to speak again.
+                     *
+                     * The active voice session will normally
+                     * reopen the microphone automatically from
+                     * speakNextChunk().
+                     */
+
+                    if (!isSpeaking) {
+
+                        if (voiceSessionActive) {
+
+                            startButton.disabled =
+                                true;
+
+                            stopButton.disabled =
+                                false;
+
+                        } else {
+
+                            startButton.disabled =
+                                false;
+
+                            stopButton.disabled =
+                                true;
+                        }
+                    }
                 };
 
 
 
-            // --------------------------------------------------
+            // ==================================================
             // RECOGNITION ERROR
-            // --------------------------------------------------
+            // ==================================================
 
             recognition.onerror =
                 (event) => {
@@ -389,24 +446,60 @@
                         false;
 
 
+                    /*
+                     * "aborted" normally happens when
+                     * the user intentionally presses Stop.
+                     */
+
+                    if (
+                        event.error ===
+                        "aborted"
+                    ) {
+
+                        return;
+                    }
+
+
                     status.textContent =
                         "Speech recognition error: " +
                         event.error;
 
 
-                    startButton.disabled =
-                        false;
+                    if (
+                        !isSpeaking &&
+                        !isProcessing
+                    ) {
 
+                        if (voiceSessionActive) {
 
-                    stopButton.disabled =
-                        true;
+                            /*
+                             * Keep the session active,
+                             * but allow the user to manually
+                             * restart if recognition failed.
+                             */
+
+                            startButton.disabled =
+                                false;
+
+                            stopButton.disabled =
+                                false;
+
+                        } else {
+
+                            startButton.disabled =
+                                false;
+
+                            stopButton.disabled =
+                                true;
+                        }
+                    }
                 };
 
 
 
-            // --------------------------------------------------
+            // ==================================================
             // RECOGNITION END
-            // --------------------------------------------------
+            // ==================================================
 
             recognition.onend =
                 () => {
@@ -415,20 +508,46 @@
                         false;
 
 
-                    stopButton.disabled =
-                        true;
-
-
                     /*
-                     * Do not enable Start while
-                     * CareFlow is still speaking.
+                     * Never enable the microphone while
+                     * CareFlow is processing or speaking.
                      */
 
-                    if (!isSpeaking) {
+                    if (
+                        isProcessing ||
+                        isSpeaking
+                    ) {
+
+                        startButton.disabled =
+                            true;
+
+                    } else if (
+                        voiceSessionActive
+                    ) {
+
+                        /*
+                         * The active voice session is controlled
+                         * by speakNextChunk(). Do not immediately
+                         * restart recognition here because Chrome
+                         * can reject a start() occurring too close
+                         * to an onend event.
+                         */
+
+                        startButton.disabled =
+                            true;
+
+                    } else {
 
                         startButton.disabled =
                             false;
                     }
+
+
+                    stopButton.disabled =
+                        !(
+                            isSpeaking ||
+                            voiceSessionActive
+                        );
                 };
         }
 
@@ -449,23 +568,37 @@
 
 
                 /*
-                 * If CareFlow is currently speaking,
-                 * stop the speech before listening again.
+                 * Activate the continuous voice session.
+                 *
+                 * CareFlow will automatically listen again
+                 * after each assistant response.
                  */
 
-                if (isSpeaking) {
+                voiceSessionActive =
+                    true;
 
-                    window.speechSynthesis.cancel();
 
-                    isSpeaking =
-                        false;
+                /*
+                 * Do not start a second request while
+                 * the current request is processing.
+                 */
+
+                if (isProcessing) {
+
+                    return;
                 }
 
 
                 /*
-                 * Prevent duplicate recognition.start()
-                 * calls.
+                 * If CareFlow is currently speaking,
+                 * stop it before listening.
                  */
+
+                if (isSpeaking) {
+
+                    stopSpeech();
+                }
+
 
                 if (isListening) {
 
@@ -498,8 +631,15 @@
             () => {
 
                 /*
-                 * Stop speech recognition.
+                 * Completely end the voice session.
+                 *
+                 * This prevents the microphone from
+                 * automatically reopening after Stop.
                  */
+
+                voiceSessionActive =
+                    false;
+
 
                 if (
                     recognition &&
@@ -513,21 +653,20 @@
                 }
 
 
-                /*
-                 * Also stop CareFlow's voice output.
-                 */
-
-                if (isSpeaking) {
-
-                    window.speechSynthesis.cancel();
-
-                    isSpeaking =
-                        false;
-                }
+                stopSpeech();
 
 
                 stopButton.disabled =
                     true;
+
+
+                if (isProcessing) {
+
+                    startButton.disabled =
+                        true;
+
+                    return;
+                }
 
 
                 startButton.disabled =
@@ -538,6 +677,50 @@
                     "Ready.";
             }
         );
+
+
+
+        // ==================================================
+        // STOP SPEECH
+        // ==================================================
+
+        function stopSpeech() {
+
+            /*
+             * Invalidate every speech callback
+             * belonging to the previous speech session.
+             */
+
+            speechGeneration++;
+
+
+            /*
+             * Stop browser speech synthesis.
+             */
+
+            window.speechSynthesis.cancel();
+
+
+            /*
+             * Cancel any waiting pause.
+             */
+
+            if (
+                speechPauseTimer !== null
+            ) {
+
+                clearTimeout(
+                    speechPauseTimer
+                );
+
+                speechPauseTimer =
+                    null;
+            }
+
+
+            isSpeaking =
+                false;
+        }
 
 
 
@@ -573,10 +756,6 @@
                     );
 
 
-                /*
-                 * Handle HTTP errors explicitly.
-                 */
-
                 if (!response.ok) {
 
                     throw new Error(
@@ -602,7 +781,7 @@
 
 
                 /*
-                 * Display CareFlow's response.
+                 * Display exactly what the model returned.
                  */
 
                 addMessage(
@@ -613,7 +792,7 @@
 
 
                 /*
-                 * Convert the response to speech.
+                 * Speak the response.
                  */
 
                 speak(reply);
@@ -631,7 +810,10 @@
                     "Could not connect to CareFlow AI.";
 
 
-                isSpeaking =
+                stopSpeech();
+
+
+                isProcessing =
                     false;
 
 
@@ -662,14 +844,6 @@
             }
 
 
-            /*
-             * Prefer natural-sounding female
-             * English voices.
-             *
-             * Availability depends on the
-             * operating system and browser.
-             */
-
             const preferredVoices = [
 
                 "Microsoft Jenny",
@@ -691,9 +865,9 @@
             ];
 
 
-            // --------------------------------------------------
+            // ==================================================
             // FIRST: PREFERRED VOICES
-            // --------------------------------------------------
+            // ==================================================
 
             for (
                 const preferred
@@ -729,9 +903,9 @@
 
 
 
-            // --------------------------------------------------
+            // ==================================================
             // SECOND: FEMALE-SOUNDING ENGLISH VOICE
-            // --------------------------------------------------
+            // ==================================================
 
             const femaleVoice =
                 voices.find(
@@ -765,9 +939,9 @@
 
 
 
-            // --------------------------------------------------
+            // ==================================================
             // FINAL: ANY ENGLISH VOICE
-            // --------------------------------------------------
+            // ==================================================
 
             const englishVoice =
                 voices.find(
@@ -793,11 +967,6 @@
 
 
 
-        /*
-         * Some browsers load speech voices
-         * asynchronously.
-         */
-
         window.speechSynthesis.onvoiceschanged =
             loadVoice;
 
@@ -819,37 +988,93 @@
 
 
             let cleaned =
-                text;
+                String(text);
 
 
 
             // ==================================================
-            // CONVERT ISO DATES TO NATURAL SPEECH
+            // REMOVE MARKDOWN
             // ==================================================
 
             /*
-             * The backend may use machine-friendly
-             * dates such as:
+             * Remove bold.
              *
-             * 2026-08-28
+             * **hello**
              *
-             * Browser TTS can pronounce these
-             * awkwardly.
+             * becomes:
              *
-             * Convert:
-             *
-             * 2026-08-28
-             *
-             * into:
-             *
-             * August 28, 2026
-             *
-             * We intentionally do NOT add "th",
-             * "st", "nd", or "rd".
-             *
-             * Some browser voices pronounce
-             * those suffixes as separate letters.
+             * hello
              */
+
+            cleaned =
+                cleaned.replace(
+                    /\*\*(.*?)\*\*/gs,
+                    "$1"
+                );
+
+
+            /*
+             * Remove italic.
+             */
+
+            cleaned =
+                cleaned.replace(
+                    /\*(.*?)\*/gs,
+                    "$1"
+                );
+
+
+            /*
+             * Remove headings.
+             */
+
+            cleaned =
+                cleaned.replace(
+                    /^\s*#+\s*/gm,
+                    ""
+                );
+
+
+            /*
+             * Remove markdown links but keep
+             * their readable text.
+             */
+
+            cleaned =
+                cleaned.replace(
+                    /\[([^\]]+)\]\([^)]+\)/g,
+                    "$1"
+                );
+
+
+
+            // ==================================================
+            // REMOVE ASTERISKS / BULLETS
+            // ==================================================
+
+            cleaned =
+                cleaned.replace(
+                    /[*•]/g,
+                    ""
+                );
+
+
+            /*
+             * Remove bullet markers at the beginning
+             * of lines.
+             */
+
+            cleaned =
+                cleaned.replace(
+                    /^\s*[-+]\s+/gm,
+                    ""
+                );
+
+
+
+            // ==================================================
+            // CONVERT ISO DATES
+            // ==================================================
 
             cleaned =
                 cleaned.replace(
@@ -861,7 +1086,7 @@
                         day
                     ) => {
 
-                        const date =
+                        const parsedDate =
                             new Date(
                                 Number(year),
                                 Number(month) - 1,
@@ -870,7 +1095,7 @@
 
 
                         const monthName =
-                            date.toLocaleString(
+                            parsedDate.toLocaleString(
                                 "en-US",
                                 {
                                     month: "long"
@@ -889,20 +1114,14 @@
 
 
             // ==================================================
-            // NORMALIZE ORDINAL DATES FOR SPEECH
+            // ORDINAL DATES
             // ==================================================
 
             /*
-             * If the LLM already returns:
+             * 28th -> 28
              *
-             * August 28th
-             *
-             * convert it to:
-             *
-             * August 28
-             *
-             * This prevents some browser voices from
-             * saying "28 T H".
+             * This allows the speech engine to say
+             * the date naturally.
              */
 
             cleaned =
@@ -914,149 +1133,156 @@
 
 
             // ==================================================
-            // REMOVE MARKDOWN BOLD
+            // NORMALIZE A.M. / P.M.
             // ==================================================
 
             /*
-             * Example:
-             *
-             * **10 AM**
-             *
-             * becomes:
-             *
-             * 10 AM
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /\*\*(.*?)\*\*/g,
-                    "$1"
-                );
-
-
-
-            // ==================================================
-            // REMOVE MARKDOWN ITALIC
-            // ==================================================
-
-            cleaned =
-                cleaned.replace(
-                    /\*(.*?)\*/g,
-                    "$1"
-                );
-
-
-
-            // ==================================================
-            // REMOVE MARKDOWN HEADINGS
-            // ==================================================
-
-            cleaned =
-                cleaned.replace(
-                    /^#+\s*/gm,
-                    ""
-                );
-
-
-
-            // ==================================================
-            // REMOVE BULLETS
-            // ==================================================
-
-            cleaned =
-                cleaned.replace(
-                    /^[•*\-]\s*/gm,
-                    ""
-                );
-
-
-
-            // ==================================================
-            // CONVERT LINE BREAKS
-            // ==================================================
-
-            /*
-             * Convert line breaks to spaces rather
-             * than inserting artificial periods.
-             *
-             * This avoids unnecessary pauses.
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /\n+/g,
-                    " "
-                );
-
-
-
-            // ==================================================
-            // DO NOT MODIFY COMMAS OR COLONS
-            // ==================================================
-
-            /*
-             * IMPORTANT:
-             *
-             * We intentionally leave commas and
-             * colons untouched.
-             *
-             * This prevents awkward pauses in:
-             *
-             * "Sure, I'd be happy to help."
-             *
-             * "Tomorrow, around 10 AM."
-             *
-             * "10:30 AM"
-             */
-
-
-
-            // ==================================================
-            // NORMALIZE COMMON TIME FORMATS
-            // ==================================================
-
-            /*
-             * Browser voices can sometimes pronounce
-             * lowercase abbreviations awkwardly.
-             *
-             * Normalize:
+             * Convert:
              *
              * a.m. -> AM
              * p.m. -> PM
-             *
-             * This also prevents pauses between
-             * "a", ".", "m", ".".
              */
 
             cleaned =
                 cleaned.replace(
-                    /\ba\.m\./gi,
-                    "AM"
+                    /\ba\s*\.\s*m\s*\.\s*/gi,
+                    " AM "
                 );
 
 
             cleaned =
                 cleaned.replace(
-                    /\bp\.m\./gi,
-                    "PM"
+                    /\bp\s*\.\s*m\s*\.\s*/gi,
+                    " PM "
                 );
 
 
 
             // ==================================================
-            // REMOVE EXCESSIVE WHITESPACE
+            // NORMALIZE FULL-HOUR TIMES
+            // ==================================================
+
+            /*
+             * Convert:
+             *
+             * 9:00 AM
+             * 10:00 AM
+             * 2:00 PM
+             *
+             * into:
+             *
+             * 9 AM
+             * 10 AM
+             * 2 PM
+             *
+             * This is VERY important because otherwise
+             * browser TTS may pronounce:
+             *
+             * "ten zero zero AM"
+             */
+
+            cleaned =
+                cleaned.replace(
+                    /\b0?(\d{1,2})\s*:\s*00\s*(AM|PM)\b/gi,
+                    "$1 $2"
+                );
+
+
+
+            // ==================================================
+            // NORMALIZE TIME SPACING
+            // ==================================================
+
+            /*
+             * 10 : 30 AM
+             *
+             * becomes:
+             *
+             * 10:30 AM
+             */
+
+            cleaned =
+                cleaned.replace(
+                    /\b(\d{1,2})\s*:\s*(\d{2})\s*(AM|PM)\b/gi,
+                    "$1:$2 $3"
+                );
+
+
+
+            // ==================================================
+            // NORMALIZE COMMON TIME WORDS
             // ==================================================
 
             cleaned =
                 cleaned.replace(
-                    /\s+/g,
+                    /\bnoon\b/gi,
+                    "12 PM"
+                );
+
+
+            cleaned =
+                cleaned.replace(
+                    /\bmidnight\b/gi,
+                    "12 AM"
+                );
+
+
+
+            // ==================================================
+            // REMOVE INVISIBLE / UNUSUAL SPACES
+            // ==================================================
+
+            cleaned =
+                cleaned.replace(
+                    /[\u00A0\u202F]/g,
                     " "
                 );
 
 
 
             // ==================================================
-            // AVOID REPEATED PERIODS
+            // NORMALIZE PUNCTUATION SPACING
+            // ==================================================
+
+            cleaned =
+                cleaned.replace(
+                    /\s+([,.!?;:])/g,
+                    "$1"
+                );
+
+
+            cleaned =
+                cleaned.replace(
+                    /([,.!?;:])([^\s])/g,
+                    "$1 $2"
+                );
+
+
+
+            // ==================================================
+            // NORMALIZE DASHES
+            // ==================================================
+
+            /*
+             * A model may produce:
+             *
+             * "Great—10 AM is available."
+             *
+             * Convert the dash to a comma so the
+             * browser creates a natural conversational
+             * pause.
+             */
+
+            cleaned =
+                cleaned.replace(
+                    /\s*[—–]\s*/g,
+                    ", "
+                );
+
+
+
+            // ==================================================
+            // REMOVE REPEATED PUNCTUATION
             // ==================================================
 
             cleaned =
@@ -1066,7 +1292,494 @@
                 );
 
 
+            cleaned =
+                cleaned.replace(
+                    /!{2,}/g,
+                    "!"
+                );
+
+
+            cleaned =
+                cleaned.replace(
+                    /\?{2,}/g,
+                    "?"
+                );
+
+
+
+            // ==================================================
+            // NORMALIZE WHITESPACE
+            // ==================================================
+
+            cleaned =
+                cleaned.replace(
+                    /[ \t]+/g,
+                    " "
+                );
+
+
+            cleaned =
+                cleaned.replace(
+                    /\n{2,}/g,
+                    "\n"
+                );
+
+
             return cleaned.trim();
+        }
+
+
+
+        // ==================================================
+        // PREPARE SPEECH TEXT
+        // ==================================================
+
+        function prepareSpeechText(text) {
+
+            let speechText =
+                cleanTextForSpeech(text);
+
+
+            if (!speechText) {
+
+                return "";
+            }
+
+
+            /*
+             * Remove any remaining standalone
+             * formatting characters.
+             */
+
+            speechText =
+                speechText.replace(
+                    /[`_~|<>]/g,
+                    ""
+                );
+
+
+            /*
+             * Remove repeated spaces.
+             */
+
+            speechText =
+                speechText.replace(
+                    /\s+/g,
+                    " "
+                );
+
+
+            /*
+             * Remove trailing commas/spaces.
+             */
+
+            speechText =
+                speechText.replace(
+                    /[\s,]+$/,
+                    ""
+                );
+
+
+            return speechText.trim();
+        }
+
+
+
+        // ==================================================
+        // DETECT APPOINTMENT LIST
+        // ==================================================
+
+        function isAppointmentList(
+            text
+        ) {
+
+            const timePattern =
+                /\b\d{1,2}(?::\d{2})?\s*(?:AM|PM)\b/gi;
+
+
+            const matches =
+                text.match(
+                    timePattern
+                );
+
+
+            return (
+                matches &&
+                matches.length >= 2
+            );
+        }
+
+
+
+        // ==================================================
+        // CREATE APPOINTMENT LIST CHUNKS
+        // ==================================================
+
+        function createAppointmentChunks(
+            speechText
+        ) {
+
+            if (!speechText) {
+
+                return [
+                    {
+                        text: "",
+                        pause: 0
+                    }
+                ];
+            }
+
+
+            let naturalText =
+                speechText;
+
+
+            // ==================================================
+            // NORMALIZE FULL-HOUR TIMES
+            // ==================================================
+
+            naturalText =
+                naturalText.replace(
+                    /\b(\d{1,2}):00\s*(AM|PM)\b/gi,
+                    "$1 $2"
+                );
+
+
+            // ==================================================
+            // NORMALIZE AM / PM
+            // ==================================================
+
+            naturalText =
+                naturalText.replace(
+                    /\ba\.m\./gi,
+                    "AM"
+                );
+
+
+            naturalText =
+                naturalText.replace(
+                    /\bp\.m\./gi,
+                    "PM"
+                );
+
+
+            // ==================================================
+            // REMOVE MARKDOWN
+            // ==================================================
+
+            naturalText =
+                naturalText.replace(
+                    /\*\*/g,
+                    ""
+                );
+
+
+            naturalText =
+                naturalText.replace(
+                    /\*/g,
+                    ""
+                );
+
+
+            // ==================================================
+            // NORMALIZE WHITESPACE
+            // ==================================================
+
+            naturalText =
+                naturalText.replace(
+                    /\s+/g,
+                    " "
+                );
+
+
+            // ==================================================
+            // CLEAN TRAILING PUNCTUATION
+            // ==================================================
+
+            naturalText =
+                naturalText.replace(
+                    /[\s,]+$/,
+                    ""
+                );
+
+
+            return [
+                {
+                    /*
+                     * Speak the entire appointment list as
+                     * ONE utterance.
+                     *
+                     * This is much more reliable in Chrome
+                     * than creating one utterance per time.
+                     */
+
+                    text:
+                        naturalText,
+
+                    pause:
+                        0
+                }
+            ];
+        }
+
+
+
+        // ==================================================
+        // CREATE CONFIRMATION CHUNKS
+        // ==================================================
+
+        function createConfirmationChunks(
+            speechText
+        ) {
+
+            /*
+             * Example:
+             *
+             * "Your appointment is booked for
+             * tomorrow, August 28th, at 10 AM."
+             *
+             * We want meaningful pauses rather than
+             * one rushed sentence.
+             */
+
+            const confirmationPattern =
+                /^(.*?\b(?:confirmed|booked)\b)(.*?\b(?:for|at)\b\s+\d{1,2}(?::\d{2})?\s*(?:AM|PM)\b)(.*)$/i;
+
+
+            const match =
+                speechText.match(
+                    confirmationPattern
+                );
+
+
+            if (!match) {
+
+                return null;
+            }
+
+
+            const chunks =
+                [];
+
+
+            const opening =
+                match[1]
+                    .trim();
+
+
+            const timePart =
+                match[2]
+                    .trim();
+
+
+            const ending =
+                match[3]
+                    .trim()
+                    .replace(
+                        /^[,.\s]+/,
+                        ""
+                    );
+
+
+            if (opening) {
+
+                chunks.push(
+                    {
+                        text:
+                            opening,
+
+                        pause:
+                            500
+                    }
+                );
+            }
+
+
+            if (timePart) {
+
+                chunks.push(
+                    {
+                        text:
+                            timePart,
+
+                        pause:
+                            600
+                    }
+                );
+            }
+
+
+            if (ending) {
+
+                chunks.push(
+                    {
+                        text:
+                            ending,
+
+                        pause:
+                            0
+                    }
+                );
+            }
+
+
+            return chunks;
+        }
+
+
+
+        // ==================================================
+        // CREATE NATURAL SENTENCE CHUNKS
+        // ==================================================
+
+        function createNaturalSentenceChunks(
+            speechText
+        ) {
+
+            /*
+             * We do NOT split every comma into a separate
+             * utterance because that sounds robotic.
+             *
+             * Instead, split only at actual sentence
+             * boundaries.
+             */
+
+            const chunks =
+                [];
+
+
+            /*
+             * Sentence boundary:
+             *
+             * .
+             * !
+             * ?
+             *
+             * followed by a space.
+             */
+
+            const sentencePattern =
+                /[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g;
+
+
+            const matches =
+                speechText.match(
+                    sentencePattern
+                );
+
+
+            if (!matches) {
+
+                return [
+                    {
+                        text:
+                            speechText,
+
+                        pause:
+                            0
+                    }
+                ];
+            }
+
+
+            matches.forEach(
+                (
+                    sentence,
+                    index
+                ) => {
+
+                    const cleanedSentence =
+                        sentence.trim();
+
+
+                    if (!cleanedSentence) {
+
+                        return;
+                    }
+
+
+                    const isQuestion =
+                        /\?\s*$/.test(
+                            cleanedSentence
+                        );
+
+
+                    const isExclamation =
+                        /!\s*$/.test(
+                            cleanedSentence
+                        );
+
+
+                    /*
+                     * Natural pause after a complete
+                     * sentence.
+                     */
+
+                    let pause =
+                        350;
+
+
+                    if (isQuestion) {
+
+                        pause =
+                            550;
+                    }
+
+
+                    if (isExclamation) {
+
+                        pause =
+                            450;
+                    }
+
+
+                    /*
+                     * No need for a large pause after
+                     * the very final sentence.
+                     */
+
+                    if (
+                        index ===
+                        matches.length - 1
+                    ) {
+
+                        pause =
+                            0;
+                    }
+
+
+                    chunks.push(
+                        {
+                            text:
+                                cleanedSentence,
+
+                            pause:
+                                pause
+                        }
+                    );
+                }
+            );
+
+
+            /*
+             * Fallback if chunking produced nothing.
+             */
+
+            if (!chunks.length) {
+
+                return [
+                    {
+                        text:
+                            speechText,
+
+                        pause:
+                            0
+                    }
+                ];
+            }
+
+
+            return chunks;
         }
 
 
@@ -1077,221 +1790,490 @@
 
         function speak(text) {
 
-    if (!text) {
-        return;
-    }
+            if (!text) {
 
-    let speechText =
-        cleanTextForSpeech(text);
-
-    if (!speechText) {
-        return;
-    }
-
-    // Stop previous speech.
-    window.speechSynthesis.cancel();
-
-    isSpeaking = true;
-
-    startButton.disabled = true;
-    stopButton.disabled = false;
-
-    status.textContent =
-        "CareFlow AI is speaking...";
+                return;
+            }
 
 
-    // ==================================================
-    // NATURAL CONVERSATIONAL PAUSES
-    // ==================================================
-    //
-    // Add tiny pauses only after conversational
-    // opening phrases.
-    //
-    // IMPORTANT:
-    // We do NOT add pauses after every comma or period.
-    // This prevents problems such as:
-    //
-    // "5 a.m." -> "5 ... a ... m"
-    //
-    // or:
-    //
-    // "10:30 a.m." -> awkward pauses.
-    //
-
-    speechText =
-        speechText.replace(
-            /^(Wonderful)[—–-]\s*/i,
-            "$1... "
-        );
-
-    speechText =
-        speechText.replace(
-            /^(Absolutely)[!,.]?\s*/i,
-            "$1... "
-        );
-
-    speechText =
-        speechText.replace(
-            /^(Great)[!,.]?\s*/i,
-            "$1... "
-        );
-
-    speechText =
-        speechText.replace(
-            /^(Perfect)[!,.]?\s*/i,
-            "$1... "
-        );
-
-    speechText =
-        speechText.replace(
-            /^(Sure thing)[!,.]?\s*/i,
-            "$1... "
-        );
-
-    speechText =
-        speechText.replace(
-            /^(Of course)[!,.]?\s*/i,
-            "$1... "
-        );
+            const speechText =
+                prepareSpeechText(text);
 
 
-    // ==================================================
-    // PROTECT COMMON ABBREVIATIONS
-    // ==================================================
-    //
-    // Prevent speech engines from treating the periods
-    // in a.m., p.m., Mr., Mrs., Dr., etc. as boundaries.
-    //
+            if (!speechText) {
 
-    speechText =
-        speechText
-            .replace(/\ba\.m\./gi, "a@@m@@")
-            .replace(/\bp\.m\./gi, "p@@m@@")
-            .replace(/\bMr\./g, "Mr@@")
-            .replace(/\bMrs\./g, "Mrs@@")
-            .replace(/\bMs\./g, "Ms@@")
-            .replace(/\bDr\./g, "Dr@@")
-            .replace(/\bSt\./g, "St@@");
+                return;
+            }
 
 
-    // ==================================================
-    // RESTORE ABBREVIATIONS
-    // ==================================================
+            /*
+             * Stop previous speech and invalidate
+             * previous callbacks.
+             */
 
-    speechText =
-        speechText
-            .replace(/@@/g, ".");
-
-
-    // ==================================================
-    // CREATE ONE UTTERANCE
-    // ==================================================
-    //
-    // Keep the complete response as ONE utterance.
-    // This avoids artificial sentence-by-sentence gaps.
-    //
-
-    const utterance =
-        new SpeechSynthesisUtterance(
-            speechText
-        );
+            stopSpeech();
 
 
-    // ==================================================
-    // SELECTED VOICE
-    // ==================================================
+            /*
+             * Capture this speech generation.
+             *
+             * If Stop is pressed later, this value
+             * will no longer match speechGeneration.
+             */
 
-    if (selectedVoice) {
-
-        utterance.voice =
-            selectedVoice;
-    }
-
-    utterance.lang =
-        "en-US";
+            const myGeneration =
+                speechGeneration;
 
 
-    // ==================================================
-    // NATURAL DELIVERY
-    // ==================================================
-
-    utterance.rate =
-        0.94;
-
-    utterance.pitch =
-        1.03;
-
-    utterance.volume =
-        1.0;
+            isSpeaking =
+                true;
 
 
-    // ==================================================
-    // SPEECH START
-    // ==================================================
+            startButton.disabled =
+                true;
 
-    utterance.onstart =
-        () => {
+
+            stopButton.disabled =
+                false;
+
 
             status.textContent =
                 "CareFlow AI is speaking...";
-        };
 
 
-    // ==================================================
-    // SPEECH FINISHED
-    // ==================================================
+            // ==================================================
+            // SELECT SPEECH MODE
+            // ==================================================
 
-    utterance.onend =
-        () => {
-
-            isSpeaking =
-                false;
-
-            startButton.disabled =
-                false;
-
-            stopButton.disabled =
-                true;
-
-            status.textContent =
-                "Ready for your next message.";
-        };
+            let chunks;
 
 
-    // ==================================================
-    // SPEECH ERROR
-    // ==================================================
+            /*
+             * Appointment list:
+             *
+             * "I have 10 AM, 2 PM, and 3:30 PM available."
+             */
 
-    utterance.onerror =
-        (event) => {
+            if (
+                isAppointmentList(
+                    speechText
+                )
+            ) {
 
-            console.error(
-                "Speech synthesis error:",
-                event
-            );
+                chunks =
+                    createAppointmentChunks(
+                        speechText
+                    );
 
-            isSpeaking =
-                false;
+            } else {
 
-            startButton.disabled =
-                false;
+                /*
+                 * Appointment confirmation.
+                 */
 
-            stopButton.disabled =
-                true;
-
-            status.textContent =
-                "Voice output failed.";
-        };
+                const confirmationChunks =
+                    createConfirmationChunks(
+                        speechText
+                    );
 
 
-    // ==================================================
-    // START SPEAKING
-    // ==================================================
+                if (confirmationChunks) {
 
-    window.speechSynthesis.speak(
-        utterance
-    );
-}
+                    chunks =
+                        confirmationChunks;
+
+                } else {
+
+                    /*
+                     * Normal conversational speech.
+                     */
+
+                    chunks =
+                        createNaturalSentenceChunks(
+                            speechText
+                        );
+                }
+            }
+
+
+
+            // ==================================================
+            // SPEAK CHUNKS SEQUENTIALLY
+            // ==================================================
+
+            let currentChunk =
+                0;
+
+
+            function speakNextChunk() {
+
+                /*
+                 * Make sure this speech session
+                 * is still valid.
+                 */
+
+                if (
+                    !isSpeaking ||
+                    myGeneration !==
+                    speechGeneration
+                ) {
+
+                    return;
+                }
+
+
+                // ==================================================
+                // FINISHED
+                // ==================================================
+
+                if (
+                    currentChunk >=
+                    chunks.length
+                ) {
+
+                    isSpeaking =
+                        false;
+
+
+                    /*
+                     * If the user pressed Stop,
+                     * do not restart the microphone.
+                     */
+
+                    if (!voiceSessionActive) {
+
+                        startButton.disabled =
+                            false;
+
+                        stopButton.disabled =
+                            true;
+
+                        status.textContent =
+                            "Ready.";
+
+                        return;
+                    }
+
+
+                    /*
+                     * If there is still processing work,
+                     * wait for it to finish.
+                     */
+
+                    if (isProcessing) {
+
+                        startButton.disabled =
+                            true;
+
+                        stopButton.disabled =
+                            false;
+
+                        status.textContent =
+                            "Thinking...";
+
+                        return;
+                    }
+
+
+                    /*
+                     * The assistant has finished speaking
+                     * and the current request is complete.
+                     *
+                     * Automatically reopen the microphone
+                     * for the next user turn.
+                     */
+
+                    startButton.disabled =
+                        true;
+
+
+                    stopButton.disabled =
+                        false;
+
+
+                    status.textContent =
+                        "Listening... Speak now.";
+
+
+                    /*
+                     * Small delay prevents Chrome from
+                     * trying to start recognition at the
+                     * exact moment speech synthesis finishes.
+                     */
+
+                    setTimeout(
+                        () => {
+
+                            if (
+                                voiceSessionActive &&
+                                !isListening &&
+                                !isSpeaking &&
+                                !isProcessing
+                            ) {
+
+                                try {
+
+                                    recognition.start();
+
+                                } catch (error) {
+
+                                    console.debug(
+                                        "Recognition restart skipped:",
+                                        error
+                                    );
+                                }
+                            }
+
+                        },
+                        250
+                    );
+
+
+                    return;
+                }
+
+
+                const chunk =
+                    chunks[currentChunk];
+
+
+                if (
+                    !chunk.text ||
+                    !chunk.text.trim()
+                ) {
+
+                    currentChunk++;
+
+                    speakNextChunk();
+
+                    return;
+                }
+
+
+
+                // ==================================================
+                // CREATE UTTERANCE
+                // ==================================================
+
+                const utterance =
+                    new SpeechSynthesisUtterance(
+                        chunk.text
+                    );
+
+
+                // ==================================================
+                // VOICE
+                // ==================================================
+
+                if (selectedVoice) {
+
+                    utterance.voice =
+                        selectedVoice;
+                }
+
+
+                utterance.lang =
+                    "en-US";
+
+
+
+                // ==================================================
+                // NATURAL HUMAN DELIVERY
+                // ==================================================
+
+                /*
+                 * Slightly slower than default.
+                 *
+                 * This makes the receptionist sound
+                 * conversational rather than like it
+                 * is reading text.
+                 */
+
+                utterance.rate =
+                    0.88;
+
+
+                utterance.pitch =
+                    1.02;
+
+
+                utterance.volume =
+                    1.0;
+
+
+
+                // ==================================================
+                // SPEECH START
+                // ==================================================
+
+                utterance.onstart =
+                    () => {
+
+                        if (
+                            !isSpeaking ||
+                            myGeneration !==
+                            speechGeneration
+                        ) {
+
+                            window.speechSynthesis.cancel();
+
+                            return;
+                        }
+
+
+                        status.textContent =
+                            "CareFlow AI is speaking...";
+                    };
+
+
+
+                // ==================================================
+                // SPEECH END
+                // ==================================================
+
+                utterance.onend =
+                    () => {
+
+                        if (
+                            !isSpeaking ||
+                            myGeneration !==
+                            speechGeneration
+                        ) {
+
+                            return;
+                        }
+
+
+                        currentChunk++;
+
+
+                        /*
+                         * Real pause between chunks.
+                         *
+                         * This is much more reliable
+                         * than putting dots into the text.
+                         */
+
+                        if (
+                            chunk.pause >
+                            0
+                        ) {
+
+                            speechPauseTimer =
+                                setTimeout(
+                                    () => {
+
+                                        speechPauseTimer =
+                                            null;
+
+
+                                        if (
+                                            isSpeaking &&
+                                            myGeneration ===
+                                            speechGeneration
+                                        ) {
+
+                                            speakNextChunk();
+                                        }
+
+                                    },
+                                    chunk.pause
+                                );
+
+                        } else {
+
+                            speakNextChunk();
+                        }
+                    };
+
+
+
+                // ==================================================
+                // SPEECH ERROR
+                // ==================================================
+
+                utterance.onerror =
+                    (event) => {
+
+                        /*
+                         * Chrome reports "interrupted"
+                         * when speechSynthesis.cancel()
+                         * is intentionally called.
+                         */
+
+                        if (
+                            event.error ===
+                            "interrupted"
+                        ) {
+
+                            return;
+                        }
+
+
+                        console.error(
+                            "Speech synthesis error:",
+                            event
+                        );
+
+
+                        if (
+                            myGeneration !==
+                            speechGeneration
+                        ) {
+
+                            return;
+                        }
+
+
+                        isSpeaking =
+                            false;
+
+
+                        if (
+                            speechPauseTimer !==
+                            null
+                        ) {
+
+                            clearTimeout(
+                                speechPauseTimer
+                            );
+
+                            speechPauseTimer =
+                                null;
+                        }
+
+
+                        startButton.disabled =
+                            isProcessing;
+
+
+                        stopButton.disabled =
+                            !isProcessing;
+
+
+                        status.textContent =
+                            "Voice output failed.";
+                    };
+
+
+
+                // ==================================================
+                // SPEAK
+                // ==================================================
+
+                window.speechSynthesis.speak(
+                    utterance
+                );
+            }
+
+
+
+            // ==================================================
+            // START SPEECH
+            // ==================================================
+
+            speakNextChunk();
+        }
 
 
 

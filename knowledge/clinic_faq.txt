@@ -1,107 +1,207 @@
-CAREFLOW CLINIC KNOWLEDGE BASE
+CAREFLOW DEMO CLINIC KNOWLEDGE BASE
 
 ABOUT THE CLINIC
 
-CareFlow Clinic is a fictional clinic used for the CareFlow AI prototype.
-CareFlow AI is an AI receptionist prototype and does not provide medical
-diagnosis or treatment advice.
+CareFlow Demo Clinic is a fictional healthcare clinic created exclusively
+for demonstrating the CareFlow AI voice receptionist prototype.
+
+CareFlow AI is a demonstration system. It does not provide medical
+diagnosis, treatment recommendations, or emergency medical services.
+
+All clinic information in this knowledge base is fictional demonstration
+data and should not be treated as information about a real healthcare
+facility.
 
 
 CLINIC HOURS
 
-The clinic is open Monday through Friday from 9:00 AM to 5:00 PM.
+The CareFlow Demo Clinic is open Monday through Friday from 9:00 AM to
+5:00 PM.
 
-The clinic is closed on weekends.
+The clinic is closed on Saturdays and Sundays.
+
+These hours are fictional demonstration data.
+
+
+SERVICES
+
+The CareFlow Demo Clinic demonstration includes the following example
+services:
+
+General consultations.
+
+Routine health checkups.
+
+Preventive health consultations.
+
+Follow-up consultations.
+
+The service list is fictional demonstration data.
 
 
 APPOINTMENTS
 
-Patients can use CareFlow AI to check appointment availability and request
-an appointment.
+CareFlow AI can check appointment availability using the appointment
+database provided by the application.
 
-CareFlow AI can only confirm appointment availability using the appointment
-system provided by the application.
+CareFlow AI can help users select an available appointment slot and
+complete a booking when the required information and user confirmation
+are provided.
 
-CareFlow AI must never claim that an appointment is available unless the
-appointment system confirms it.
+Appointment availability must always come from the appointment system.
+CareFlow AI must never invent or assume that a particular appointment
+slot is available.
+
+APPOINTMENT PREPARATION
+
+Patients should arrive approximately 10 minutes before their
+scheduled appointment.
 
 
 BOOKING
 
-An appointment can only be booked when an available appointment slot exists.
+An appointment can only be booked when the requested appointment slot
+has been verified as available by the appointment system.
 
-The patient must provide their name before an appointment can be booked.
+The patient's name must be explicitly provided by the user before an
+appointment can be booked.
 
-CareFlow AI should obtain appropriate confirmation from the patient before
-finalizing a booking.
+The user must explicitly confirm that they want to book the selected
+appointment.
+
+CareFlow AI must never claim that an appointment was booked unless the
+appointment system confirms a successful booking.
 
 
 CANCELLATION
 
-The CareFlow prototype does not currently provide an appointment cancellation
-function.
+Appointment cancellation is not currently supported by the CareFlow AI
+prototype.
 
 CareFlow AI must not claim that it can cancel an appointment.
+
+Cancellation functionality could be added to a future version of the
+application.
 
 
 RESCHEDULING
 
-The CareFlow prototype does not currently provide an appointment
-rescheduling function.
+Appointment rescheduling is not currently supported by the CareFlow AI
+prototype.
 
 CareFlow AI must not claim that it can reschedule an appointment.
 
+Rescheduling functionality could be added to a future version of the
+application.
+
+
+WALK-IN APPOINTMENTS
+
+Walk-in appointments are not currently supported by the clinic.
+
+The clinic does not currently accept walk-in patients.
+
+Patients should schedule an appointment through CareFlow AI.
 
 WHAT TO BRING
 
-The clinic knowledge base currently does not specify a complete list of
-items that patients should bring to an appointment.
+Patients should bring a valid photo ID and any relevant
 
-CareFlow AI must not invent requirements such as identification documents,
-insurance cards, medical records, medication lists, or test results.
-
-If asked what to bring, CareFlow AI should explain that it does not have
-specific information available and recommend confirming with clinic staff.
+medical records or medication information needed for their visit.
 
 
 INSURANCE
 
-The clinic knowledge base does not currently contain information about
-insurance coverage or insurance requirements.
+The clinic accepts selected insurance plans.
 
-CareFlow AI must not guess or provide insurance requirements.
+Insurance coverage depends on the patient's individual plan.
 
-
-PRESCRIPTIONS
-
-CareFlow AI does not prescribe medication and does not provide prescription
-advice.
+Patients should verify their coverage before the appointment.
 
 
-MEDICAL ADVICE
+LOCATION
 
-CareFlow AI does not diagnose medical conditions or provide treatment
-recommendations.
+The CareFlow Demo Clinic does not have a real-world physical location.
 
-For medical concerns, CareFlow AI should encourage the user to speak with
-a qualified healthcare professional.
+The clinic is fictional and exists only for demonstration purposes.
 
-For a potentially life-threatening emergency, the user should seek
-appropriate emergency medical assistance immediately.
+CareFlow AI must not invent a real-world address, directions, telephone
+number, or other contact information.
 
 
 HUMAN ASSISTANCE
 
-The current prototype does not have a live human handoff or phone-transfer
-integration.
+The current CareFlow AI prototype does not have a live human handoff,
+phone-transfer, or call-center integration.
 
-CareFlow AI must not claim that it has transferred the user to a human
-unless such an integration is actually implemented.
+CareFlow AI must not claim that it has transferred a user to a human.
+
+A human handoff capability could be integrated into a future version.
+
+
+REMINDERS AND NOTIFICATIONS
+
+The current CareFlow AI prototype does not provide SMS, email, telephone,
+or other appointment reminder notifications.
+
+CareFlow AI must not claim that a reminder or notification will be sent.
+
+Notification functionality could be added in a future version.
+
+
+PATIENT RECORDS
+
+The current prototype does not have access to real patient medical
+records, electronic health records, or external healthcare systems.
+
+CareFlow AI must not claim to retrieve or modify patient medical
+records.
+
+
+PRESCRIPTIONS
+
+CareFlow AI does not prescribe medication.
+
+CareFlow AI does not provide prescription recommendations or medication
+prescription services.
+
+
+MEDICAL ADVICE
+
+CareFlow AI does not diagnose medical conditions.
+
+CareFlow AI does not provide personalized treatment recommendations.
+
+For medical concerns, users should seek advice from a qualified
+healthcare professional.
+
+For potentially life-threatening emergencies, users should seek
+appropriate emergency medical assistance immediately.
 
 
 PRIVACY
 
-The CareFlow prototype uses synthetic demonstration data.
+The CareFlow AI prototype uses synthetic demonstration data.
 
-Users should not provide real sensitive medical information to this
+The prototype is not intended for storing or processing real sensitive
+medical information.
+
+Users should not provide real medical records, passwords, financial
+information, or other sensitive personal information to the prototype.
+
+
+DEMO LIMITATIONS
+
+CareFlow AI is a prototype created to demonstrate voice interaction,
+large-language-model reasoning, appointment tool calling, database
+integration, and retrieval-augmented generation.
+
+Some capabilities are intentionally not implemented.
+
+When information or functionality is not available, CareFlow AI should
+clearly state that it is not currently configured or supported by the
 prototype.
+
+CareFlow AI must never fabricate clinic information, appointment
+availability, capabilities, policies, contact information, or patient
+data.

@@ -238,6 +238,86 @@ def load_chunks() -> list[str]:
     )
 
 
+
+# --------------------------------------------------
+# QUERY NORMALIZATION
+# --------------------------------------------------
+
+def normalize_query(query: str) -> str:
+    """
+    Normalize common conversational variations into
+    terminology used by the clinic knowledge base.
+
+    This improves retrieval for short voice queries.
+    """
+
+    normalized = query.lower().strip()
+
+    walk_in_phrases = (
+        "walk in",
+        "walk-in",
+        "without booking",
+        "without an appointment",
+        "no appointment",
+        "come without",
+        "come in without",
+        "visit without",
+        "show up without",
+    )
+
+    if any(
+        phrase in normalized
+        for phrase in walk_in_phrases
+    ):
+        return (
+            "walk-in appointments "
+            "walk in without an appointment "
+            "walk-in appointment policy"
+        )
+
+    insurance_phrases = (
+        "insurance",
+        "insurance plan",
+        "insurance accepted",
+        "accept insurance",
+        "take insurance",
+        "coverage",
+    )
+
+    if any(
+        phrase in normalized
+        for phrase in insurance_phrases
+    ):
+        return (
+            "insurance accepted insurance plans "
+            "insurance coverage insurance requirements"
+        )
+
+    preparation_phrases = (
+        "what should i bring",
+        "what do i bring",
+        "bring to my appointment",
+        "bring for my appointment",
+        "documents for my appointment",
+        "appointment preparation",
+        "prepare for my appointment",
+    )
+
+    if any(
+        phrase in normalized
+        for phrase in preparation_phrases
+    ):
+        return (
+            "what to bring appointment preparation "
+            "photo ID medical records medication information"
+        )
+
+    return query
+
+# --------------------------------------------------
+# SEARCH KNOWLEDGE
+# --------------------------------------------------
+
 # --------------------------------------------------
 # SEARCH KNOWLEDGE
 # --------------------------------------------------
@@ -245,15 +325,34 @@ def load_chunks() -> list[str]:
 def search_knowledge(
     query: str,
     top_k: int = 3,
-    relevance_threshold: float = 0.50
+    relevance_threshold: float = 0.40
 ) -> list[dict]:
+    """
+    Search the clinic knowledge base using semantic similarity.
+
+    A slightly lower threshold is used because short,
+    conversational voice queries can have lower embedding
+    similarity even when they clearly refer to a known
+    clinic policy.
+
+    The caller can still override the threshold when needed.
+    """
 
     index = load_index()
 
     chunks = load_chunks()
 
+    if not query or not query.strip():
+        return []
+
+    #normalize conversational voice query
+
+    normalized_query = normalize_query(query)
+
+    #create query embedding
+
     query_embedding = create_embeddings(
-        [query]
+        [normalized_query]
     )
 
     faiss.normalize_L2(
@@ -282,7 +381,6 @@ def search_knowledge(
 
         score = float(score)
 
-        # Ignore weak semantic matches.
         if score < relevance_threshold:
             continue
 
