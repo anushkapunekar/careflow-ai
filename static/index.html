@@ -1,2358 +1,2113 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-
-    <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <title>CareFlow AI</title>
-
-
-    <style>
-
-        body {
-
-            font-family: Arial, sans-serif;
-
-            max-width: 800px;
-
-            margin: 50px auto;
-
-            padding: 20px;
-
-            background: #f5f7fa;
-        }
-
-
-        h1 {
-
-            margin-bottom: 5px;
-        }
-
-
-        .subtitle {
-
-            color: #666;
-
-            margin-bottom: 30px;
-        }
-
-
-        .controls {
-
-            display: flex;
-
-            gap: 10px;
-
-            margin-bottom: 20px;
-        }
-
-
-        button {
-
-            padding: 12px 20px;
-
-            border: none;
-
-            border-radius: 8px;
-
-            cursor: pointer;
-
-            font-size: 16px;
-        }
-
-
-        #startButton {
-
-            background: #2563eb;
-
-            color: white;
-        }
-
-
-        #stopButton {
-
-            background: #dc2626;
-
-            color: white;
-        }
-
-
-        button:disabled {
-
-            opacity: 0.5;
-
-            cursor: not-allowed;
-        }
-
-
-        #status {
-
-            padding: 12px;
-
-            background: white;
-
-            border-radius: 8px;
-
-            margin-bottom: 20px;
-        }
-
-
-        #conversation {
-
-            background: white;
-
-            padding: 20px;
-
-            border-radius: 10px;
-
-            min-height: 300px;
-        }
-
-
-        .message {
-
-            margin-bottom: 15px;
-
-            padding: 12px;
-
-            border-radius: 8px;
-        }
-
-
-        .user {
-
-            background: #e0ecff;
-        }
-
-
-        .assistant {
-
-            background: #e8f5e9;
-        }
-
-
-        .label {
-
-            font-weight: bold;
-
-            margin-bottom: 5px;
-        }
-
-    </style>
-
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#07111f">
+<title>CareFlow AI — Voice Receptionist</title>
+
+<style>
+:root{
+    --bg:#07111f;
+    --panel:rgba(13,27,45,.78);
+    --border:rgba(148,163,184,.16);
+    --text:#f7fbff;
+    --muted:#8fa3b8;
+    --accent:#39d5c5;
+    --accent2:#5b8cff;
+    --shadow:0 30px 80px rgba(0,0,0,.38);
+}
+
+*{
+    box-sizing:border-box;
+}
+
+html,
+body{
+    margin:0;
+    min-height:100%;
+    font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    color:var(--text);
+    background:var(--bg);
+}
+
+body{
+    overflow-x:hidden;
+}
+
+body:before{
+    content:"";
+    position:fixed;
+    inset:-20%;
+    z-index:-2;
+    background:
+        radial-gradient(circle at 18% 18%,rgba(57,213,197,.16),transparent 28%),
+        radial-gradient(circle at 84% 12%,rgba(91,140,255,.17),transparent 30%),
+        radial-gradient(circle at 50% 90%,rgba(84,72,190,.12),transparent 28%);
+}
+
+body:after{
+    content:"";
+    position:fixed;
+    inset:0;
+    z-index:-1;
+    pointer-events:none;
+    background-image:
+        linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
+    background-size:42px 42px;
+    mask-image:linear-gradient(to bottom,black,transparent 90%);
+}
+
+button{
+    font:inherit;
+}
+
+.app{
+    width:min(1180px,calc(100% - 36px));
+    margin:0 auto;
+    padding:28px 0 34px;
+}
+
+.topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:20px;
+    margin-bottom:24px;
+}
+
+.brand{
+    display:flex;
+    align-items:center;
+    gap:13px;
+}
+
+.logo{
+    width:44px;
+    height:44px;
+    border-radius:14px;
+    display:grid;
+    place-items:center;
+    background:linear-gradient(145deg,var(--accent),#2b9cf6);
+    box-shadow:0 10px 30px rgba(57,213,197,.18);
+    font-weight:900;
+    font-size:20px;
+}
+
+.brand h1{
+    font-size:19px;
+    line-height:1;
+    margin:0 0 5px;
+    letter-spacing:-.4px;
+}
+
+.brand p{
+    margin:0;
+    color:var(--muted);
+    font-size:12px;
+}
+
+.status-pill{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:9px 13px;
+    border:1px solid var(--border);
+    border-radius:999px;
+    background:rgba(255,255,255,.035);
+    font-size:12px;
+    color:#b8c8d8;
+}
+
+.dot{
+    width:7px;
+    height:7px;
+    border-radius:50%;
+    background:var(--accent);
+    box-shadow:0 0 14px var(--accent);
+}
+
+.layout{
+    display:grid;
+    grid-template-columns:minmax(0,1.45fr) minmax(300px,.55fr);
+    gap:20px;
+}
+
+.card{
+    background:linear-gradient(
+        145deg,
+        rgba(17,35,56,.86),
+        rgba(8,20,34,.82)
+    );
+    border:1px solid var(--border);
+    border-radius:26px;
+    box-shadow:var(--shadow);
+    backdrop-filter:blur(18px);
+}
+
+.hero{
+    min-height:690px;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+}
+
+.hero-head{
+    padding:30px 32px 8px;
+}
+
+.eyebrow{
+    display:inline-flex;
+    align-items:center;
+    gap:7px;
+    color:var(--accent);
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:1.5px;
+    font-weight:800;
+}
+
+.hero-title{
+    font-size:clamp(30px,4vw,48px);
+    line-height:1.02;
+    letter-spacing:-2px;
+    margin:13px 0 9px;
+    max-width:700px;
+}
+
+.hero-sub{
+    color:var(--muted);
+    font-size:14px;
+    margin:0;
+    line-height:1.55;
+}
+
+.stage{
+    flex:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    padding:25px;
+}
+
+.orb-wrap{
+    position:relative;
+    width:250px;
+    height:250px;
+    display:grid;
+    place-items:center;
+}
+
+.orb-ring,
+.orb-ring2{
+    position:absolute;
+    border-radius:50%;
+    border:1px solid rgba(57,213,197,.22);
+    width:100%;
+    height:100%;
+}
+
+.orb-ring2{
+    width:82%;
+    height:82%;
+    border-color:rgba(91,140,255,.22);
+}
+
+.orb{
+    width:142px;
+    height:142px;
+    border-radius:50%;
+    display:grid;
+    place-items:center;
+    position:relative;
+    background:
+        radial-gradient(
+            circle at 35% 28%,
+            #75fff0 0,
+            #39d5c5 26%,
+            #207e9c 66%,
+            #142d52 100%
+        );
+    box-shadow:
+        0 0 70px rgba(57,213,197,.26),
+        inset 0 0 35px rgba(255,255,255,.18);
+    transition:.3s transform;
+}
+
+.orb:before{
+    content:"";
+    position:absolute;
+    inset:13px;
+    border-radius:50%;
+    border:1px solid rgba(255,255,255,.26);
+}
+
+.mic{
+    font-size:38px;
+    filter:drop-shadow(0 3px 10px rgba(0,0,0,.25));
+}
+
+.stage.active .orb{
+    animation:breathe 1.5s ease-in-out infinite;
+}
+
+.stage.active .orb-ring{
+    animation:pulse 1.5s ease-out infinite;
+}
+
+.stage.active .orb-ring2{
+    animation:pulse 1.5s .4s ease-out infinite;
+}
+
+@keyframes breathe{
+    50%{
+        transform:scale(1.055);
+    }
+}
+
+@keyframes pulse{
+    0%{
+        transform:scale(.88);
+        opacity:.2;
+    }
+
+    60%{
+        opacity:.75;
+    }
+
+    100%{
+        transform:scale(1.2);
+        opacity:0;
+    }
+}
+
+.state{
+    text-align:center;
+    position:absolute;
+    bottom:26px;
+    left:0;
+    right:0;
+}
+
+.state-title{
+    font-size:15px;
+    font-weight:700;
+    margin-bottom:5px;
+}
+
+.state-help{
+    font-size:12px;
+    color:var(--muted);
+}
+
+.controls{
+    display:flex;
+    justify-content:center;
+    gap:10px;
+    padding:0 28px 25px;
+}
+
+.primary,
+.secondary{
+    border:0;
+    border-radius:14px;
+    padding:13px 20px;
+    cursor:pointer;
+    font-weight:750;
+    transition:.2s;
+}
+
+.primary{
+    color:#04131b;
+    background:linear-gradient(
+        135deg,
+        #62f3df,
+        #43c5f7
+    );
+    box-shadow:0 10px 30px rgba(57,213,197,.17);
+}
+
+.secondary{
+    color:#dce8f3;
+    background:rgba(255,255,255,.06);
+    border:1px solid var(--border);
+}
+
+.primary:hover,
+.secondary:hover{
+    transform:translateY(-1px);
+}
+
+button:disabled{
+    opacity:.4;
+    cursor:not-allowed;
+    transform:none!important;
+}
+
+.transcript{
+    height:690px;
+    display:flex;
+    flex-direction:column;
+}
+
+.panel-head{
+    padding:22px 22px 16px;
+    border-bottom:1px solid var(--border);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+}
+
+.panel-head h2{
+    font-size:14px;
+    margin:0;
+}
+
+.panel-head span{
+    font-size:11px;
+    color:var(--muted);
+}
+
+.conversation{
+    padding:18px;
+    overflow:auto;
+    flex:1;
+    scroll-behavior:smooth;
+}
+
+.empty{
+    text-align:center;
+    color:var(--muted);
+    padding:70px 25px;
+    font-size:13px;
+    line-height:1.6;
+}
+
+.message{
+    display:flex;
+    margin-bottom:14px;
+    animation:rise .25s ease;
+}
+
+.message.user{
+    justify-content:flex-end;
+}
+
+.bubble{
+    max-width:88%;
+    padding:12px 14px;
+    border-radius:17px;
+    font-size:13px;
+    line-height:1.5;
+    white-space:pre-wrap;
+}
+
+.assistant .bubble{
+    background:rgba(57,213,197,.08);
+    border:1px solid rgba(57,213,197,.13);
+    border-bottom-left-radius:5px;
+}
+
+.user .bubble{
+    background:rgba(91,140,255,.12);
+    border:1px solid rgba(91,140,255,.14);
+    border-bottom-right-radius:5px;
+}
+
+.msg-label{
+    font-size:10px;
+    color:var(--muted);
+    margin:0 0 5px 4px;
+}
+
+.user .msg-label{
+    text-align:right;
+    margin-right:4px;
+}
+
+.message-inner{
+    max-width:88%;
+}
+
+@keyframes rise{
+    from{
+        opacity:0;
+        transform:translateY(7px);
+    }
+
+    to{
+        opacity:1;
+        transform:none;
+    }
+}
+
+.side{
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+}
+
+.info{
+    padding:22px;
+}
+
+.info h3{
+    margin:0 0 14px;
+    font-size:14px;
+}
+
+.feature{
+    display:flex;
+    gap:12px;
+    padding:12px 0;
+    border-bottom:1px solid var(--border);
+}
+
+.feature:last-child{
+    border-bottom:0;
+    padding-bottom:0;
+}
+
+.feature-icon{
+    width:34px;
+    height:34px;
+    display:grid;
+    place-items:center;
+    border-radius:10px;
+    background:rgba(255,255,255,.05);
+    font-size:15px;
+    flex:none;
+}
+
+.feature b{
+    font-size:12px;
+    display:block;
+    margin-bottom:3px;
+}
+
+.feature span{
+    font-size:11px;
+    color:var(--muted);
+    line-height:1.45;
+}
+
+.demo{
+    padding:22px;
+}
+
+.demo h3{
+    margin:0 0 5px;
+    font-size:14px;
+}
+
+.demo p{
+    font-size:11px;
+    color:var(--muted);
+    margin:0 0 15px;
+    line-height:1.5;
+}
+
+.chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:7px;
+}
+
+.chip{
+    border:1px solid var(--border);
+    background:rgba(255,255,255,.035);
+    color:#c9d7e5;
+    padding:8px 10px;
+    border-radius:10px;
+    font-size:11px;
+    cursor:pointer;
+}
+
+.chip:hover{
+    border-color:rgba(57,213,197,.35);
+    color:white;
+}
+
+.footer{
+    text-align:center;
+    color:#64788c;
+    font-size:10px;
+    margin-top:17px;
+}
+
+@media(max-width:900px){
+
+    .layout{
+        grid-template-columns:1fr;
+    }
+
+    .transcript{
+        height:480px;
+    }
+
+    .hero{
+        min-height:610px;
+    }
+}
+
+@media(max-width:560px){
+
+    .app{
+        width:min(100% - 20px,1180px);
+        padding-top:14px;
+    }
+
+    .topbar{
+        margin-bottom:14px;
+    }
+
+    .status-pill{
+        display:none;
+    }
+
+    .hero-head{
+        padding:23px 20px 5px;
+    }
+
+    .hero-title{
+        font-size:34px;
+    }
+
+    .stage{
+        min-height:330px;
+    }
+
+    .orb-wrap{
+        transform:scale(.82);
+    }
+
+    .controls{
+        padding:0 15px 20px;
+    }
+
+    .primary,
+    .secondary{
+        flex:1;
+    }
+
+    .transcript{
+        height:440px;
+    }
+
+    .bubble{
+        max-width:94%;
+    }
+}
+</style>
 </head>
-
 
 <body>
 
+<div class="app">
 
-    <h1>CareFlow AI</h1>
+    <!-- HEADER -->
+    <header class="topbar">
+
+        <div class="brand">
+
+            <div class="logo">
+                ✦
+            </div>
+
+            <div>
+
+                <h1>
+                    CareFlow AI
+                </h1>
+
+                <p>
+                    Intelligent voice reception for modern clinics
+                </p>
+
+            </div>
+
+        </div>
+
+        <div class="status-pill">
+
+            <span class="dot"></span>
+
+            <span id="connectionText">
+                System ready
+            </span>
+
+        </div>
+
+    </header>
 
 
-    <div class="subtitle">
+    <!-- MAIN -->
+    <main class="layout">
 
-        AI Voice Receptionist Prototype
 
+        <!-- VOICE CARD -->
+        <section class="card hero">
+
+
+            <div class="hero-head">
+
+                <div class="eyebrow">
+                    ● AI VOICE RECEPTIONIST
+                </div>
+
+                <h2 class="hero-title">
+                    Your clinic,
+                    <br>
+                    always ready to help.
+                </h2>
+
+                <p class="hero-sub">
+                    Book appointments, check availability,
+                    and get clinic information through a
+                    natural voice conversation.
+                </p>
+
+            </div>
+
+
+            <!-- VOICE STAGE -->
+            <div
+                class="stage"
+                id="stage"
+            >
+
+                <div class="orb-wrap">
+
+                    <div class="orb-ring"></div>
+
+                    <div class="orb-ring2"></div>
+
+                    <div class="orb">
+
+                        <span class="mic">
+                            🎙️
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <div class="state">
+
+                    <div
+                        class="state-title"
+                        id="status"
+                    >
+                        Ready to help
+                    </div>
+
+                    <div
+                        class="state-help"
+                        id="statusHelp"
+                    >
+                        Press Start Talking to begin your
+                        conversation
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <!-- CONTROLS -->
+            <div class="controls">
+
+                <button
+                    class="primary"
+                    id="startButton"
+                >
+                    🎙️ Start Talking
+                </button>
+
+                <button
+                    class="secondary"
+                    id="stopButton"
+                    disabled
+                >
+                    ⏹ Stop
+                </button>
+
+            </div>
+
+        </section>
+
+
+
+        <!-- RIGHT SIDE -->
+        <aside class="side">
+
+
+            <!-- CONVERSATION -->
+            <section class="card transcript">
+
+                <div class="panel-head">
+
+                    <h2>
+                        Conversation
+                    </h2>
+
+                    <span>
+                        LIVE TRANSCRIPT
+                    </span>
+
+                </div>
+
+                <div
+                    class="conversation"
+                    id="conversation"
+                >
+
+                    <div
+                        class="empty"
+                        id="emptyState"
+                    >
+
+                        Your conversation will appear here.
+
+                        <br>
+                        <br>
+
+                        Try asking about appointments,
+                        clinic hours, walk-ins, insurance,
+                        or what to bring.
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+
+            <!-- CAPABILITIES -->
+            <section class="card info">
+
+                <h3>
+                    What CareFlow can do
+                </h3>
+
+
+                <div class="feature">
+
+                    <div class="feature-icon">
+                        📅
+                    </div>
+
+                    <div>
+
+                        <b>
+                            Appointment booking
+                        </b>
+
+                        <span>
+                            Check real availability and
+                            book verified slots.
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <div class="feature">
+
+                    <div class="feature-icon">
+                        🧠
+                    </div>
+
+                    <div>
+
+                        <b>
+                            Clinic knowledge
+                        </b>
+
+                        <span>
+                            Answers are grounded in the
+                            clinic knowledge base.
+                        </span>
+
+                    </div>
+
+                </div>
+
+
+                <div class="feature">
+
+                    <div class="feature-icon">
+                        ⚡
+                    </div>
+
+                    <div>
+
+                        <b>
+                            Voice-first experience
+                        </b>
+
+                        <span>
+                            Natural conversational interaction
+                            with hands-free flow.
+                        </span>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+
+            <!-- DEMO QUESTIONS -->
+            <section class="card demo">
+
+                <h3>
+                    Try a demo question
+                </h3>
+
+                <p>
+                    Click a prompt to send it directly
+                    to CareFlow AI.
+                </p>
+
+                <div class="chips">
+
+                    <button
+                        class="chip"
+                        data-prompt="What are your clinic hours?"
+                    >
+                        Clinic hours
+                    </button>
+
+                    <button
+                        class="chip"
+                        data-prompt="Do you accept walk-ins?"
+                    >
+                        Walk-ins
+                    </button>
+
+                    <button
+                        class="chip"
+                        data-prompt="What should I bring to my appointment?"
+                    >
+                        What to bring
+                    </button>
+
+                    <button
+                        class="chip"
+                        data-prompt="Do you accept insurance?"
+                    >
+                        Insurance
+                    </button>
+
+                    <button
+                        class="chip"
+                        data-prompt="What appointments are available on September 19th?"
+                    >
+                        Availability
+                    </button>
+
+                </div>
+
+            </section>
+
+        </aside>
+
+    </main>
+
+
+    <div class="footer">
+        CareFlow AI · Demonstration prototype · Synthetic clinic data
     </div>
 
-
-    <div class="controls">
-
-
-        <button id="startButton">
-
-            🎙️ Start Talking
-
-        </button>
-
-
-        <button
-            id="stopButton"
-            disabled
-        >
-
-            ⏹ Stop
-
-        </button>
-
-
-    </div>
-
-
-    <div id="status">
-
-        Ready.
-
-    </div>
-
-
-    <div id="conversation"></div>
+</div>
 
 
 
-    <script>
+<script>
+
+/* =========================================================
+   DOM
+========================================================= */
+
+const startButton =
+    document.getElementById("startButton");
+
+const stopButton =
+    document.getElementById("stopButton");
+
+const status =
+    document.getElementById("status");
+
+const statusHelp =
+    document.getElementById("statusHelp");
+
+const conversation =
+    document.getElementById("conversation");
+
+const emptyState =
+    document.getElementById("emptyState");
+
+const stage =
+    document.getElementById("stage");
+
+const connectionText =
+    document.getElementById("connectionText");
 
 
-        // ==================================================
-        // DOM ELEMENTS
-        // ==================================================
+/* =========================================================
+   CONVERSATION
+========================================================= */
 
-        const startButton =
-            document.getElementById("startButton");
-
-
-        const stopButton =
-            document.getElementById("stopButton");
+const conversationId =
+    "voice-" + crypto.randomUUID();
 
 
-        const status =
-            document.getElementById("status");
+/* =========================================================
+   STATE
+========================================================= */
+
+let isListening = false;
+
+let isSpeaking = false;
+
+let isProcessing = false;
+
+let voiceSessionActive = false;
+
+let selectedVoice = null;
+
+let speechPauseTimer = null;
+
+let speechGeneration = 0;
 
 
-        const conversation =
-            document.getElementById("conversation");
+/* =========================================================
+   SPEECH RECOGNITION
+========================================================= */
+
+const SpeechRecognition =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+
+const recognition =
+    SpeechRecognition
+        ? new SpeechRecognition()
+        : null;
 
 
+if (!recognition) {
 
-        // ==================================================
-        // CONVERSATION ID
-        // ==================================================
+    setState(
+        "Voice unavailable",
+        "Speech recognition is not supported in this browser."
+    );
 
-        const conversationId =
-            "voice-" + crypto.randomUUID();
-
-
-
-        // ==================================================
-        // APPLICATION STATE
-        // ==================================================
-
-        let isListening =
-            false;
+    startButton.disabled = true;
+}
 
 
-        let isSpeaking =
-            false;
+if (recognition) {
+
+    recognition.lang =
+        "en-US";
+
+    recognition.interimResults =
+        false;
+
+    recognition.continuous =
+        false;
 
 
-        let isProcessing =
-            false;
+    /* =====================================================
+       START
+    ===================================================== */
 
+    recognition.onstart =
+        () => {
 
-        /*
-         * Tracks whether the user has started
-         * an active voice conversation.
-         *
-         * When true, CareFlow automatically
-         * reopens the microphone after speaking.
-         */
+            isListening =
+                true;
 
-        let voiceSessionActive =
-            false;
+            setState(
+                "Listening...",
+                "Speak naturally. I'm listening.",
+                true
+            );
 
-
-        let selectedVoice =
-            null;
-
-
-        let speechPauseTimer =
-            null;
-
-
-        let speechGeneration =
-            0;
-
-
-
-        // ==================================================
-        // SPEECH RECOGNITION
-        // ==================================================
-
-        const SpeechRecognition =
-            window.SpeechRecognition ||
-            window.webkitSpeechRecognition;
-
-
-        if (!SpeechRecognition) {
-
-            status.textContent =
-                "Speech recognition is not supported in this browser.";
+            setConnection(
+                "Listening"
+            );
 
             startButton.disabled =
                 true;
-        }
+
+            stopButton.disabled =
+                false;
+        };
 
 
-        const recognition =
-            SpeechRecognition
-                ? new SpeechRecognition()
-                : null;
+    /* =====================================================
+       RESULT
+    ===================================================== */
 
+    recognition.onresult =
+        async (event) => {
 
+            if (isProcessing) {
+                return;
+            }
 
-        // ==================================================
-        // CONFIGURE SPEECH RECOGNITION
-        // ==================================================
+            const transcript =
+                event.results[0][0]
+                    .transcript
+                    .trim();
 
-        if (recognition) {
+            if (!transcript) {
+                return;
+            }
 
-            recognition.lang =
-                "en-US";
+            isProcessing =
+                true;
 
+            isListening =
+                false;
 
-            recognition.interimResults =
+            addMessage(
+                "You",
+                transcript,
+                "user"
+            );
+
+            setState(
+                "Thinking...",
+                "CareFlow is processing your request."
+            );
+
+            setConnection(
+                "Processing"
+            );
+
+            await sendToAgent(
+                transcript
+            );
+
+            isProcessing =
                 false;
 
 
-            recognition.continuous =
-                false;
+            if (!isSpeaking) {
 
-
-
-            // ==================================================
-            // RECOGNITION START
-            // ==================================================
-
-            recognition.onstart =
-                () => {
-
-                    isListening =
-                        true;
-
-
-                    status.textContent =
-                        "Listening... Speak now.";
-
+                if (voiceSessionActive) {
 
                     startButton.disabled =
                         true;
 
-
                     stopButton.disabled =
                         false;
-                };
 
-
-
-            // ==================================================
-            // SPEECH RESULT
-            // ==================================================
-
-            recognition.onresult =
-                async (event) => {
-
-                    /*
-                     * Prevent duplicate submissions.
-                     */
-
-                    if (isProcessing) {
-
-                        return;
-                    }
-
-
-                    const transcript =
-                        event.results[0][0]
-                            .transcript
-                            .trim();
-
-
-                    if (!transcript) {
-
-                        return;
-                    }
-
-
-                    isProcessing =
-                        true;
-
-
-                    isListening =
-                        false;
-
-
-                    addMessage(
-                        "You",
-                        transcript,
-                        "user"
-                    );
-
-
-                    status.textContent =
-                        "Thinking...";
-
-
-                    await sendToAgent(
-                        transcript
-                    );
-
-
-                    isProcessing =
-                        false;
-
-
-                    /*
-                     * If speech has already finished,
-                     * allow the user to speak again.
-                     *
-                     * The active voice session will normally
-                     * reopen the microphone automatically from
-                     * speakNextChunk().
-                     */
-
-                    if (!isSpeaking) {
-
-                        if (voiceSessionActive) {
-
-                            startButton.disabled =
-                                true;
-
-                            stopButton.disabled =
-                                false;
-
-                        } else {
-
-                            startButton.disabled =
-                                false;
-
-                            stopButton.disabled =
-                                true;
-                        }
-                    }
-                };
-
-
-
-            // ==================================================
-            // RECOGNITION ERROR
-            // ==================================================
-
-            recognition.onerror =
-                (event) => {
-
-                    console.error(
-                        "Speech recognition error:",
-                        event.error
-                    );
-
-
-                    isListening =
-                        false;
-
-
-                    /*
-                     * "aborted" normally happens when
-                     * the user intentionally presses Stop.
-                     */
-
-                    if (
-                        event.error ===
-                        "aborted"
-                    ) {
-
-                        return;
-                    }
-
-
-                    status.textContent =
-                        "Speech recognition error: " +
-                        event.error;
-
-
-                    if (
-                        !isSpeaking &&
-                        !isProcessing
-                    ) {
-
-                        if (voiceSessionActive) {
-
-                            /*
-                             * Keep the session active,
-                             * but allow the user to manually
-                             * restart if recognition failed.
-                             */
-
-                            startButton.disabled =
-                                false;
-
-                            stopButton.disabled =
-                                false;
-
-                        } else {
-
-                            startButton.disabled =
-                                false;
-
-                            stopButton.disabled =
-                                true;
-                        }
-                    }
-                };
-
-
-
-            // ==================================================
-            // RECOGNITION END
-            // ==================================================
-
-            recognition.onend =
-                () => {
-
-                    isListening =
-                        false;
-
-
-                    /*
-                     * Never enable the microphone while
-                     * CareFlow is processing or speaking.
-                     */
-
-                    if (
-                        isProcessing ||
-                        isSpeaking
-                    ) {
-
-                        startButton.disabled =
-                            true;
-
-                    } else if (
-                        voiceSessionActive
-                    ) {
-
-                        /*
-                         * The active voice session is controlled
-                         * by speakNextChunk(). Do not immediately
-                         * restart recognition here because Chrome
-                         * can reject a start() occurring too close
-                         * to an onend event.
-                         */
-
-                        startButton.disabled =
-                            true;
-
-                    } else {
-
-                        startButton.disabled =
-                            false;
-                    }
-
-
-                    stopButton.disabled =
-                        !(
-                            isSpeaking ||
-                            voiceSessionActive
-                        );
-                };
-        }
-
-
-
-        // ==================================================
-        // START TALKING
-        // ==================================================
-
-        startButton.addEventListener(
-            "click",
-            () => {
-
-                if (!recognition) {
-
-                    return;
-                }
-
-
-                /*
-                 * Activate the continuous voice session.
-                 *
-                 * CareFlow will automatically listen again
-                 * after each assistant response.
-                 */
-
-                voiceSessionActive =
-                    true;
-
-
-                /*
-                 * Do not start a second request while
-                 * the current request is processing.
-                 */
-
-                if (isProcessing) {
-
-                    return;
-                }
-
-
-                /*
-                 * If CareFlow is currently speaking,
-                 * stop it before listening.
-                 */
-
-                if (isSpeaking) {
-
-                    stopSpeech();
-                }
-
-
-                if (isListening) {
-
-                    return;
-                }
-
-
-                try {
-
-                    recognition.start();
-
-                } catch (error) {
-
-                    console.error(
-                        "Could not start recognition:",
-                        error
-                    );
-                }
-            }
-        );
-
-
-
-        // ==================================================
-        // STOP
-        // ==================================================
-
-        stopButton.addEventListener(
-            "click",
-            () => {
-
-                /*
-                 * Completely end the voice session.
-                 *
-                 * This prevents the microphone from
-                 * automatically reopening after Stop.
-                 */
-
-                voiceSessionActive =
-                    false;
-
-
-                if (
-                    recognition &&
-                    isListening
-                ) {
-
-                    recognition.stop();
-
-                    isListening =
-                        false;
-                }
-
-
-                stopSpeech();
-
-
-                stopButton.disabled =
-                    true;
-
-
-                if (isProcessing) {
+                } else {
 
                     startButton.disabled =
+                        false;
+
+                    stopButton.disabled =
                         true;
-
-                    return;
                 }
-
-
-                startButton.disabled =
-                    false;
-
-
-                status.textContent =
-                    "Ready.";
             }
-        );
+        };
 
 
+    /* =====================================================
+       ERROR
+    ===================================================== */
 
-        // ==================================================
-        // STOP SPEECH
-        // ==================================================
+    recognition.onerror =
+        (event) => {
 
-        function stopSpeech() {
+            console.error(
+                "Speech recognition error:",
+                event.error
+            );
 
-            /*
-             * Invalidate every speech callback
-             * belonging to the previous speech session.
-             */
-
-            speechGeneration++;
-
-
-            /*
-             * Stop browser speech synthesis.
-             */
-
-            window.speechSynthesis.cancel();
-
-
-            /*
-             * Cancel any waiting pause.
-             */
+            isListening =
+                false;
 
             if (
-                speechPauseTimer !== null
+                event.error ===
+                "aborted"
+            ) {
+                return;
+            }
+
+            setState(
+                "Couldn't hear that",
+                "You can try again."
+            );
+
+            setConnection(
+                "Ready"
+            );
+
+            if (
+                !isSpeaking &&
+                !isProcessing
             ) {
 
-                clearTimeout(
-                    speechPauseTimer
-                );
+                startButton.disabled =
+                    false;
 
-                speechPauseTimer =
-                    null;
+                stopButton.disabled =
+                    !voiceSessionActive;
+            }
+        };
+
+
+    /* =====================================================
+       END
+    ===================================================== */
+
+    recognition.onend =
+        () => {
+
+            isListening =
+                false;
+
+            if (
+                isProcessing ||
+                isSpeaking
+            ) {
+
+                startButton.disabled =
+                    true;
+
+            } else if (
+                voiceSessionActive
+            ) {
+
+                startButton.disabled =
+                    true;
+
+            } else {
+
+                startButton.disabled =
+                    false;
+            }
+
+            stopButton.disabled =
+                !(
+                    isSpeaking ||
+                    voiceSessionActive
+                );
+        };
+}
+
+
+/* =========================================================
+   START TALKING
+========================================================= */
+
+startButton.addEventListener(
+    "click",
+    () => {
+
+        if (!recognition) {
+            return;
+        }
+
+        voiceSessionActive =
+            true;
+
+        if (isProcessing) {
+            return;
+        }
+
+        if (isSpeaking) {
+            stopSpeech();
+        }
+
+        if (isListening) {
+            return;
+        }
+
+        try {
+
+            recognition.start();
+
+        } catch (error) {
+
+            console.debug(
+                "Recognition start skipped:",
+                error
+            );
+        }
+    }
+);
+
+
+/* =========================================================
+   STOP
+========================================================= */
+
+stopButton.addEventListener(
+    "click",
+    () => {
+
+        voiceSessionActive =
+            false;
+
+        if (
+            recognition &&
+            isListening
+        ) {
+
+            recognition.stop();
+
+            isListening =
+                false;
+        }
+
+        stopSpeech();
+
+        startButton.disabled =
+            false;
+
+        stopButton.disabled =
+            true;
+
+        setState(
+            "Ready to help",
+            "Press Start Talking to continue"
+        );
+
+        setConnection(
+            "System ready"
+        );
+    }
+);
+
+
+/* =========================================================
+   STATE
+========================================================= */
+
+function setState(
+    title,
+    help = "",
+    active = false
+) {
+
+    status.textContent =
+        title;
+
+    statusHelp.textContent =
+        help;
+
+    stage.classList.toggle(
+        "active",
+        active
+    );
+}
+
+
+function setConnection(
+    text
+) {
+
+    connectionText.textContent =
+        text;
+}
+
+
+/* =========================================================
+   SEND TO AGENT
+========================================================= */
+
+async function sendToAgent(
+    message
+) {
+
+    try {
+
+        const response =
+            await fetch(
+                "/api/chat",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        conversation_id:
+                            conversationId,
+
+                        message:
+                            message
+                    })
+                }
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Agent API returned " +
+                response.status
+            );
+        }
+
+
+        const data =
+            await response.json();
+
+
+        const reply =
+            data.response;
+
+
+        if (!reply) {
+
+            throw new Error(
+                "Empty agent response"
+            );
+        }
+
+
+        addMessage(
+            "CareFlow AI",
+            reply,
+            "assistant"
+        );
+
+
+        speak(
+            reply
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            "Agent request failed:",
+            error
+        );
+
+        setState(
+            "Connection issue",
+            "I couldn't reach CareFlow AI. Please try again."
+        );
+
+        setConnection(
+            "Connection issue"
+        );
+
+        stopSpeech();
+
+        isProcessing =
+            false;
+
+        startButton.disabled =
+            false;
+
+        stopButton.disabled =
+            true;
+    }
+}
+
+
+/* =========================================================
+   ADD MESSAGE
+========================================================= */
+
+function addMessage(
+    sender,
+    text,
+    className
+) {
+
+    if (emptyState) {
+        emptyState.remove();
+    }
+
+
+    const message =
+        document.createElement(
+            "div"
+        );
+
+    message.className =
+        "message " +
+        className;
+
+
+    const inner =
+        document.createElement(
+            "div"
+        );
+
+    inner.className =
+        "message-inner";
+
+
+    const label =
+        document.createElement(
+            "div"
+        );
+
+    label.className =
+        "msg-label";
+
+    label.textContent =
+        sender;
+
+
+    const bubble =
+        document.createElement(
+            "div"
+        );
+
+    bubble.className =
+        "bubble";
+
+    bubble.textContent =
+        text;
+
+
+    inner.appendChild(
+        label
+    );
+
+    inner.appendChild(
+        bubble
+    );
+
+    message.appendChild(
+        inner
+    );
+
+    conversation.appendChild(
+        message
+    );
+
+
+    conversation.scrollTop =
+        conversation.scrollHeight;
+}
+
+
+/* =========================================================
+   LOAD VOICE
+========================================================= */
+
+function loadVoice() {
+
+    const voices =
+        window.speechSynthesis
+            .getVoices();
+
+    if (!voices.length) {
+        return;
+    }
+
+
+    const preferred = [
+
+        "Microsoft Jenny",
+
+        "Microsoft Aria",
+
+        "Microsoft Zira",
+
+        "Google UK English Female",
+
+        "Google US English Female",
+
+        "Samantha",
+
+        "Karen",
+
+        "Sonia"
+    ];
+
+
+    for (
+        const preferredName
+        of preferred
+    ) {
+
+        const match =
+            voices.find(
+                voice =>
+                    voice.name
+                        .toLowerCase()
+                        .includes(
+                            preferredName
+                                .toLowerCase()
+                        )
+            );
+
+
+        if (match) {
+
+            selectedVoice =
+                match;
+
+            return;
+        }
+    }
+
+
+    selectedVoice =
+        voices.find(
+            voice =>
+                voice.lang
+                    .toLowerCase()
+                    .startsWith("en")
+        ) ||
+        voices[0];
+}
+
+
+window.speechSynthesis.onvoiceschanged =
+    loadVoice;
+
+loadVoice();
+
+
+/* =========================================================
+   CLEAN SPEECH
+========================================================= */
+
+function cleanTextForSpeech(
+    text
+) {
+
+    if (!text) {
+        return "";
+    }
+
+
+    let cleaned =
+        String(text);
+
+
+    cleaned =
+        cleaned.replace(
+            /\*\*(.*?)\*\*/gs,
+            "$1"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\*(.*?)\*/gs,
+            "$1"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /^\s*#+\s*/gm,
+            ""
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\[([^\]]+)\]\([^)]+\)/g,
+            "$1"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /[*•]/g,
+            ""
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /^\s*[-+]\s+/gm,
+            ""
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\b(\d{4})-(\d{2})-(\d{2})\b/g,
+            (
+                match,
+                year,
+                month,
+                day
+            ) => {
+
+                const parsedDate =
+                    new Date(
+                        Number(year),
+                        Number(month) - 1,
+                        Number(day)
+                    );
+
+                return parsedDate
+                    .toLocaleDateString(
+                        "en-US",
+                        {
+                            month:
+                                "long",
+
+                            day:
+                                "numeric",
+
+                            year:
+                                "numeric"
+                        }
+                    );
+            }
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\b(\d+)(st|nd|rd|th)\b/gi,
+            "$1"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\ba\s*\.\s*m\s*\.\s*/gi,
+            " AM "
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\bp\s*\.\s*m\s*\.\s*/gi,
+            " PM "
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\b0?(\d{1,2})\s*:\s*00\s*(AM|PM)\b/gi,
+            "$1 $2"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\b(\d{1,2})\s*:\s*(\d{2})\s*(AM|PM)\b/gi,
+            "$1:$2 $3"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\bnoon\b/gi,
+            "12 PM"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\bmidnight\b/gi,
+            "12 AM"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /[\u00A0\u202F]/g,
+            " "
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\s+([,.!?;:])/g,
+            "$1"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /([,.!?;:])([^\s])/g,
+            "$1 $2"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\s*[—–]\s*/g,
+            ", "
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\.{2,}/g,
+            "."
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /!{2,}/g,
+            "!"
+        );
+
+
+    cleaned =
+        cleaned.replace(
+            /\?{2,}/g,
+            "?"
+        );
+
+
+    return cleaned
+        .replace(
+            /[ \t]+/g,
+            " "
+        )
+        .replace(
+            /\n{2,}/g,
+            "\n"
+        )
+        .trim();
+}
+
+
+/* =========================================================
+   STOP SPEECH
+========================================================= */
+
+function stopSpeech() {
+
+    speechGeneration++;
+
+    window.speechSynthesis.cancel();
+
+
+    if (
+        speechPauseTimer !== null
+    ) {
+
+        clearTimeout(
+            speechPauseTimer
+        );
+
+        speechPauseTimer =
+            null;
+    }
+
+
+    isSpeaking =
+        false;
+}
+
+
+/* =========================================================
+   SPEAK
+========================================================= */
+
+function speak(
+    text
+) {
+
+    const speechText =
+        cleanTextForSpeech(
+            text
+        );
+
+
+    if (!speechText) {
+        return;
+    }
+
+
+    stopSpeech();
+
+
+    const myGeneration =
+        speechGeneration;
+
+
+    isSpeaking =
+        true;
+
+
+    startButton.disabled =
+        true;
+
+    stopButton.disabled =
+        false;
+
+
+    setState(
+        "CareFlow AI is speaking...",
+        "",
+        true
+    );
+
+
+    setConnection(
+        "Speaking"
+    );
+
+
+    const utterance =
+        new SpeechSynthesisUtterance(
+            speechText
+        );
+
+
+    if (selectedVoice) {
+
+        utterance.voice =
+            selectedVoice;
+    }
+
+
+    utterance.lang =
+        "en-US";
+
+
+    utterance.rate =
+        0.90;
+
+
+    utterance.pitch =
+        1.02;
+
+
+    utterance.volume =
+        1.0;
+
+
+    utterance.onend =
+        () => {
+
+            if (
+                !isSpeaking ||
+                myGeneration !==
+                speechGeneration
+            ) {
+
+                return;
             }
 
 
             isSpeaking =
                 false;
-        }
 
 
-
-        // ==================================================
-        // SEND MESSAGE TO CAREFLOW AGENT
-        // ==================================================
-
-        async function sendToAgent(message) {
-
-            try {
-
-                const response =
-                    await fetch(
-                        "/api/chat",
-                        {
-                            method: "POST",
-
-                            headers: {
-
-                                "Content-Type":
-                                    "application/json"
-                            },
-
-                            body: JSON.stringify({
-
-                                conversation_id:
-                                    conversationId,
-
-                                message:
-                                    message
-                            })
-                        }
-                    );
-
-
-                if (!response.ok) {
-
-                    throw new Error(
-                        `Agent API returned ${response.status}`
-                    );
-                }
-
-
-                const data =
-                    await response.json();
-
-
-                const reply =
-                    data.response;
-
-
-                if (!reply) {
-
-                    throw new Error(
-                        "Agent returned an empty response."
-                    );
-                }
-
-
-                /*
-                 * Display exactly what the model returned.
-                 */
-
-                addMessage(
-                    "CareFlow AI",
-                    reply,
-                    "assistant"
-                );
-
-
-                /*
-                 * Speak the response.
-                 */
-
-                speak(reply);
-
-
-            } catch (error) {
-
-                console.error(
-                    "Agent request failed:",
-                    error
-                );
-
-
-                status.textContent =
-                    "Could not connect to CareFlow AI.";
-
-
-                stopSpeech();
-
-
-                isProcessing =
-                    false;
-
+            if (!voiceSessionActive) {
 
                 startButton.disabled =
                     false;
 
-
                 stopButton.disabled =
                     true;
-            }
-        }
 
+                setState(
+                    "Ready to help",
+                    "Press Start Talking to continue"
+                );
 
-
-        // ==================================================
-        // VOICE SELECTION
-        // ==================================================
-
-        function loadVoice() {
-
-            const voices =
-                window.speechSynthesis.getVoices();
-
-
-            if (!voices.length) {
+                setConnection(
+                    "System ready"
+                );
 
                 return;
             }
 
 
-            const preferredVoices = [
+            if (isProcessing) {
 
-                "Microsoft Jenny",
-
-                "Microsoft Aria",
-
-                "Microsoft Zira",
-
-                "Google UK English Female",
-
-                "Google US English Female",
-
-                "Samantha",
-
-                "Karen",
-
-                "Sonia"
-
-            ];
-
-
-            // ==================================================
-            // FIRST: PREFERRED VOICES
-            // ==================================================
-
-            for (
-                const preferred
-                of preferredVoices
-            ) {
-
-                const match =
-                    voices.find(
-                        voice =>
-                            voice.name
-                                .toLowerCase()
-                                .includes(
-                                    preferred.toLowerCase()
-                                )
-                    );
-
-
-                if (match) {
-
-                    selectedVoice =
-                        match;
-
-
-                    console.log(
-                        "Selected voice:",
-                        selectedVoice.name
-                    );
-
-
-                    return;
-                }
-            }
-
-
-
-            // ==================================================
-            // SECOND: FEMALE-SOUNDING ENGLISH VOICE
-            // ==================================================
-
-            const femaleVoice =
-                voices.find(
-                    voice =>
-
-                        voice.lang
-                            .toLowerCase()
-                            .startsWith("en") &&
-
-                        /female|zira|jenny|samantha|aria|karen|sonia/i
-                            .test(
-                                voice.name
-                            )
+                setState(
+                    "Thinking...",
+                    "CareFlow is processing your request."
                 );
-
-
-            if (femaleVoice) {
-
-                selectedVoice =
-                    femaleVoice;
-
-
-                console.log(
-                    "Selected female English voice:",
-                    selectedVoice.name
-                );
-
 
                 return;
             }
 
 
-
-            // ==================================================
-            // FINAL: ANY ENGLISH VOICE
-            // ==================================================
-
-            const englishVoice =
-                voices.find(
-                    voice =>
-                        voice.lang
-                            .toLowerCase()
-                            .startsWith("en")
-                );
-
-
-            if (englishVoice) {
-
-                selectedVoice =
-                    englishVoice;
-
-
-                console.log(
-                    "Selected English voice:",
-                    selectedVoice.name
-                );
-            }
-        }
-
-
-
-        window.speechSynthesis.onvoiceschanged =
-            loadVoice;
-
-
-        loadVoice();
-
-
-
-        // ==================================================
-        // CLEAN TEXT FOR SPEECH
-        // ==================================================
-
-        function cleanTextForSpeech(text) {
-
-            if (!text) {
-
-                return "";
-            }
-
-
-            let cleaned =
-                String(text);
-
-
-
-            // ==================================================
-            // REMOVE MARKDOWN
-            // ==================================================
-
-            /*
-             * Remove bold.
-             *
-             * **hello**
-             *
-             * becomes:
-             *
-             * hello
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /\*\*(.*?)\*\*/gs,
-                    "$1"
-                );
-
-
-            /*
-             * Remove italic.
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /\*(.*?)\*/gs,
-                    "$1"
-                );
-
-
-            /*
-             * Remove headings.
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /^\s*#+\s*/gm,
-                    ""
-                );
-
-
-            /*
-             * Remove markdown links but keep
-             * their readable text.
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /\[([^\]]+)\]\([^)]+\)/g,
-                    "$1"
-                );
-
-
-
-            // ==================================================
-            // REMOVE ASTERISKS / BULLETS
-            // ==================================================
-
-            cleaned =
-                cleaned.replace(
-                    /[*•]/g,
-                    ""
-                );
-
-
-            /*
-             * Remove bullet markers at the beginning
-             * of lines.
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /^\s*[-+]\s+/gm,
-                    ""
-                );
-
-
-
-            // ==================================================
-            // CONVERT ISO DATES
-            // ==================================================
-
-            cleaned =
-                cleaned.replace(
-                    /\b(\d{4})-(\d{2})-(\d{2})\b/g,
-                    (
-                        match,
-                        year,
-                        month,
-                        day
-                    ) => {
-
-                        const parsedDate =
-                            new Date(
-                                Number(year),
-                                Number(month) - 1,
-                                Number(day)
-                            );
-
-
-                        const monthName =
-                            parsedDate.toLocaleString(
-                                "en-US",
-                                {
-                                    month: "long"
-                                }
-                            );
-
-
-                        return (
-                            `${monthName} ` +
-                            `${Number(day)}, ` +
-                            `${year}`
-                        );
-                    }
-                );
-
-
-
-            // ==================================================
-            // ORDINAL DATES
-            // ==================================================
-
-            /*
-             * 28th -> 28
-             *
-             * This allows the speech engine to say
-             * the date naturally.
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /\b(\d+)(st|nd|rd|th)\b/gi,
-                    "$1"
-                );
-
-
-
-            // ==================================================
-            // NORMALIZE A.M. / P.M.
-            // ==================================================
-
-            /*
-             * Convert:
-             *
-             * a.m. -> AM
-             * p.m. -> PM
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /\ba\s*\.\s*m\s*\.\s*/gi,
-                    " AM "
-                );
-
-
-            cleaned =
-                cleaned.replace(
-                    /\bp\s*\.\s*m\s*\.\s*/gi,
-                    " PM "
-                );
-
-
-
-            // ==================================================
-            // NORMALIZE FULL-HOUR TIMES
-            // ==================================================
-
-            /*
-             * Convert:
-             *
-             * 9:00 AM
-             * 10:00 AM
-             * 2:00 PM
-             *
-             * into:
-             *
-             * 9 AM
-             * 10 AM
-             * 2 PM
-             *
-             * This is VERY important because otherwise
-             * browser TTS may pronounce:
-             *
-             * "ten zero zero AM"
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /\b0?(\d{1,2})\s*:\s*00\s*(AM|PM)\b/gi,
-                    "$1 $2"
-                );
-
-
-
-            // ==================================================
-            // NORMALIZE TIME SPACING
-            // ==================================================
-
-            /*
-             * 10 : 30 AM
-             *
-             * becomes:
-             *
-             * 10:30 AM
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /\b(\d{1,2})\s*:\s*(\d{2})\s*(AM|PM)\b/gi,
-                    "$1:$2 $3"
-                );
-
-
-
-            // ==================================================
-            // NORMALIZE COMMON TIME WORDS
-            // ==================================================
-
-            cleaned =
-                cleaned.replace(
-                    /\bnoon\b/gi,
-                    "12 PM"
-                );
-
-
-            cleaned =
-                cleaned.replace(
-                    /\bmidnight\b/gi,
-                    "12 AM"
-                );
-
-
-
-            // ==================================================
-            // REMOVE INVISIBLE / UNUSUAL SPACES
-            // ==================================================
-
-            cleaned =
-                cleaned.replace(
-                    /[\u00A0\u202F]/g,
-                    " "
-                );
-
-
-
-            // ==================================================
-            // NORMALIZE PUNCTUATION SPACING
-            // ==================================================
-
-            cleaned =
-                cleaned.replace(
-                    /\s+([,.!?;:])/g,
-                    "$1"
-                );
-
-
-            cleaned =
-                cleaned.replace(
-                    /([,.!?;:])([^\s])/g,
-                    "$1 $2"
-                );
-
-
-
-            // ==================================================
-            // NORMALIZE DASHES
-            // ==================================================
-
-            /*
-             * A model may produce:
-             *
-             * "Great—10 AM is available."
-             *
-             * Convert the dash to a comma so the
-             * browser creates a natural conversational
-             * pause.
-             */
-
-            cleaned =
-                cleaned.replace(
-                    /\s*[—–]\s*/g,
-                    ", "
-                );
-
-
-
-            // ==================================================
-            // REMOVE REPEATED PUNCTUATION
-            // ==================================================
-
-            cleaned =
-                cleaned.replace(
-                    /\.{2,}/g,
-                    "."
-                );
-
-
-            cleaned =
-                cleaned.replace(
-                    /!{2,}/g,
-                    "!"
-                );
-
-
-            cleaned =
-                cleaned.replace(
-                    /\?{2,}/g,
-                    "?"
-                );
-
-
-
-            // ==================================================
-            // NORMALIZE WHITESPACE
-            // ==================================================
-
-            cleaned =
-                cleaned.replace(
-                    /[ \t]+/g,
-                    " "
-                );
-
-
-            cleaned =
-                cleaned.replace(
-                    /\n{2,}/g,
-                    "\n"
-                );
-
-
-            return cleaned.trim();
-        }
-
-
-
-        // ==================================================
-        // PREPARE SPEECH TEXT
-        // ==================================================
-
-        function prepareSpeechText(text) {
-
-            let speechText =
-                cleanTextForSpeech(text);
-
-
-            if (!speechText) {
-
-                return "";
-            }
-
-
-            /*
-             * Remove any remaining standalone
-             * formatting characters.
-             */
-
-            speechText =
-                speechText.replace(
-                    /[`_~|<>]/g,
-                    ""
-                );
-
-
-            /*
-             * Remove repeated spaces.
-             */
-
-            speechText =
-                speechText.replace(
-                    /\s+/g,
-                    " "
-                );
-
-
-            /*
-             * Remove trailing commas/spaces.
-             */
-
-            speechText =
-                speechText.replace(
-                    /[\s,]+$/,
-                    ""
-                );
-
-
-            return speechText.trim();
-        }
-
-
-
-        // ==================================================
-        // DETECT APPOINTMENT LIST
-        // ==================================================
-
-        function isAppointmentList(
-            text
-        ) {
-
-            const timePattern =
-                /\b\d{1,2}(?::\d{2})?\s*(?:AM|PM)\b/gi;
-
-
-            const matches =
-                text.match(
-                    timePattern
-                );
-
-
-            return (
-                matches &&
-                matches.length >= 2
-            );
-        }
-
-
-
-        // ==================================================
-        // CREATE APPOINTMENT LIST CHUNKS
-        // ==================================================
-
-        function createAppointmentChunks(
-            speechText
-        ) {
-
-            if (!speechText) {
-
-                return [
-                    {
-                        text: "",
-                        pause: 0
-                    }
-                ];
-            }
-
-
-            let naturalText =
-                speechText;
-
-
-            // ==================================================
-            // NORMALIZE FULL-HOUR TIMES
-            // ==================================================
-
-            naturalText =
-                naturalText.replace(
-                    /\b(\d{1,2}):00\s*(AM|PM)\b/gi,
-                    "$1 $2"
-                );
-
-
-            // ==================================================
-            // NORMALIZE AM / PM
-            // ==================================================
-
-            naturalText =
-                naturalText.replace(
-                    /\ba\.m\./gi,
-                    "AM"
-                );
-
-
-            naturalText =
-                naturalText.replace(
-                    /\bp\.m\./gi,
-                    "PM"
-                );
-
-
-            // ==================================================
-            // REMOVE MARKDOWN
-            // ==================================================
-
-            naturalText =
-                naturalText.replace(
-                    /\*\*/g,
-                    ""
-                );
-
-
-            naturalText =
-                naturalText.replace(
-                    /\*/g,
-                    ""
-                );
-
-
-            // ==================================================
-            // NORMALIZE WHITESPACE
-            // ==================================================
-
-            naturalText =
-                naturalText.replace(
-                    /\s+/g,
-                    " "
-                );
-
-
-            // ==================================================
-            // CLEAN TRAILING PUNCTUATION
-            // ==================================================
-
-            naturalText =
-                naturalText.replace(
-                    /[\s,]+$/,
-                    ""
-                );
-
-
-            return [
-                {
-                    /*
-                     * Speak the entire appointment list as
-                     * ONE utterance.
-                     *
-                     * This is much more reliable in Chrome
-                     * than creating one utterance per time.
-                     */
-
-                    text:
-                        naturalText,
-
-                    pause:
-                        0
-                }
-            ];
-        }
-
-
-
-        // ==================================================
-        // CREATE CONFIRMATION CHUNKS
-        // ==================================================
-
-        function createConfirmationChunks(
-            speechText
-        ) {
-
-            /*
-             * Example:
-             *
-             * "Your appointment is booked for
-             * tomorrow, August 28th, at 10 AM."
-             *
-             * We want meaningful pauses rather than
-             * one rushed sentence.
-             */
-
-            const confirmationPattern =
-                /^(.*?\b(?:confirmed|booked)\b)(.*?\b(?:for|at)\b\s+\d{1,2}(?::\d{2})?\s*(?:AM|PM)\b)(.*)$/i;
-
-
-            const match =
-                speechText.match(
-                    confirmationPattern
-                );
-
-
-            if (!match) {
-
-                return null;
-            }
-
-
-            const chunks =
-                [];
-
-
-            const opening =
-                match[1]
-                    .trim();
-
-
-            const timePart =
-                match[2]
-                    .trim();
-
-
-            const ending =
-                match[3]
-                    .trim()
-                    .replace(
-                        /^[,.\s]+/,
-                        ""
-                    );
-
-
-            if (opening) {
-
-                chunks.push(
-                    {
-                        text:
-                            opening,
-
-                        pause:
-                            500
-                    }
-                );
-            }
-
-
-            if (timePart) {
-
-                chunks.push(
-                    {
-                        text:
-                            timePart,
-
-                        pause:
-                            600
-                    }
-                );
-            }
-
-
-            if (ending) {
-
-                chunks.push(
-                    {
-                        text:
-                            ending,
-
-                        pause:
-                            0
-                    }
-                );
-            }
-
-
-            return chunks;
-        }
-
-
-
-        // ==================================================
-        // CREATE NATURAL SENTENCE CHUNKS
-        // ==================================================
-
-        function createNaturalSentenceChunks(
-            speechText
-        ) {
-
-            /*
-             * We do NOT split every comma into a separate
-             * utterance because that sounds robotic.
-             *
-             * Instead, split only at actual sentence
-             * boundaries.
-             */
-
-            const chunks =
-                [];
-
-
-            /*
-             * Sentence boundary:
-             *
-             * .
-             * !
-             * ?
-             *
-             * followed by a space.
-             */
-
-            const sentencePattern =
-                /[^.!?]+[.!?]+(?=\s|$)|[^.!?]+$/g;
-
-
-            const matches =
-                speechText.match(
-                    sentencePattern
-                );
-
-
-            if (!matches) {
-
-                return [
-                    {
-                        text:
-                            speechText,
-
-                        pause:
-                            0
-                    }
-                ];
-            }
-
-
-            matches.forEach(
-                (
-                    sentence,
-                    index
-                ) => {
-
-                    const cleanedSentence =
-                        sentence.trim();
-
-
-                    if (!cleanedSentence) {
-
-                        return;
-                    }
-
-
-                    const isQuestion =
-                        /\?\s*$/.test(
-                            cleanedSentence
-                        );
-
-
-                    const isExclamation =
-                        /!\s*$/.test(
-                            cleanedSentence
-                        );
-
-
-                    /*
-                     * Natural pause after a complete
-                     * sentence.
-                     */
-
-                    let pause =
-                        350;
-
-
-                    if (isQuestion) {
-
-                        pause =
-                            550;
-                    }
-
-
-                    if (isExclamation) {
-
-                        pause =
-                            450;
-                    }
-
-
-                    /*
-                     * No need for a large pause after
-                     * the very final sentence.
-                     */
-
-                    if (
-                        index ===
-                        matches.length - 1
-                    ) {
-
-                        pause =
-                            0;
-                    }
-
-
-                    chunks.push(
-                        {
-                            text:
-                                cleanedSentence,
-
-                            pause:
-                                pause
-                        }
-                    );
-                }
+            setState(
+                "Listening...",
+                "Speak naturally. I'm listening.",
+                true
             );
 
 
-            /*
-             * Fallback if chunking produced nothing.
-             */
-
-            if (!chunks.length) {
-
-                return [
-                    {
-                        text:
-                            speechText,
-
-                        pause:
-                            0
-                    }
-                ];
-            }
-
-
-            return chunks;
-        }
-
-
-
-        // ==================================================
-        // TEXT TO SPEECH
-        // ==================================================
-
-        function speak(text) {
-
-            if (!text) {
-
-                return;
-            }
-
-
-            const speechText =
-                prepareSpeechText(text);
-
-
-            if (!speechText) {
-
-                return;
-            }
-
-
-            /*
-             * Stop previous speech and invalidate
-             * previous callbacks.
-             */
-
-            stopSpeech();
-
-
-            /*
-             * Capture this speech generation.
-             *
-             * If Stop is pressed later, this value
-             * will no longer match speechGeneration.
-             */
-
-            const myGeneration =
-                speechGeneration;
-
-
-            isSpeaking =
-                true;
+            setConnection(
+                "Listening"
+            );
 
 
             startButton.disabled =
                 true;
-
 
             stopButton.disabled =
                 false;
 
 
-            status.textContent =
-                "CareFlow AI is speaking...";
+            setTimeout(
+                () => {
+
+                    if (
+                        voiceSessionActive &&
+                        !isListening &&
+                        !isSpeaking &&
+                        !isProcessing
+                    ) {
+
+                        try {
+
+                            recognition.start();
+
+                        } catch (error) {
+
+                            console.debug(
+                                "Recognition restart skipped:",
+                                error
+                            );
+                        }
+                    }
+
+                },
+                250
+            );
+        };
 
 
-            // ==================================================
-            // SELECT SPEECH MODE
-            // ==================================================
-
-            let chunks;
-
-
-            /*
-             * Appointment list:
-             *
-             * "I have 10 AM, 2 PM, and 3:30 PM available."
-             */
+    utterance.onerror =
+        (event) => {
 
             if (
-                isAppointmentList(
-                    speechText
-                )
+                event.error ===
+                "interrupted"
             ) {
-
-                chunks =
-                    createAppointmentChunks(
-                        speechText
-                    );
-
-            } else {
-
-                /*
-                 * Appointment confirmation.
-                 */
-
-                const confirmationChunks =
-                    createConfirmationChunks(
-                        speechText
-                    );
-
-
-                if (confirmationChunks) {
-
-                    chunks =
-                        confirmationChunks;
-
-                } else {
-
-                    /*
-                     * Normal conversational speech.
-                     */
-
-                    chunks =
-                        createNaturalSentenceChunks(
-                            speechText
-                        );
-                }
+                return;
             }
 
 
-
-            // ==================================================
-            // SPEAK CHUNKS SEQUENTIALLY
-            // ==================================================
-
-            let currentChunk =
-                0;
+            console.error(
+                "Speech synthesis error:",
+                event.error
+            );
 
 
-            function speakNextChunk() {
-
-                /*
-                 * Make sure this speech session
-                 * is still valid.
-                 */
-
-                if (
-                    !isSpeaking ||
-                    myGeneration !==
-                    speechGeneration
-                ) {
-
-                    return;
-                }
+            if (
+                myGeneration !==
+                speechGeneration
+            ) {
+                return;
+            }
 
 
-                // ==================================================
-                // FINISHED
-                // ==================================================
-
-                if (
-                    currentChunk >=
-                    chunks.length
-                ) {
-
-                    isSpeaking =
-                        false;
+            isSpeaking =
+                false;
 
 
-                    /*
-                     * If the user pressed Stop,
-                     * do not restart the microphone.
-                     */
-
-                    if (!voiceSessionActive) {
-
-                        startButton.disabled =
-                            false;
-
-                        stopButton.disabled =
-                            true;
-
-                        status.textContent =
-                            "Ready.";
-
-                        return;
-                    }
+            setState(
+                "Voice output failed",
+                "You can continue by speaking again."
+            );
 
 
-                    /*
-                     * If there is still processing work,
-                     * wait for it to finish.
-                     */
+            setConnection(
+                "Ready"
+            );
+
+
+            startButton.disabled =
+                false;
+
+            stopButton.disabled =
+                !voiceSessionActive;
+        };
+
+
+    window.speechSynthesis.speak(
+        utterance
+    );
+}
+
+
+/* =========================================================
+   DEMO QUESTION BUTTONS
+========================================================= */
+
+document
+    .querySelectorAll(".chip")
+    .forEach(
+        button => {
+
+            button.addEventListener(
+                "click",
+                async () => {
+
+                    const prompt =
+                        button.dataset.prompt;
+
 
                     if (isProcessing) {
-
-                        startButton.disabled =
-                            true;
-
-                        stopButton.disabled =
-                            false;
-
-                        status.textContent =
-                            "Thinking...";
-
                         return;
                     }
 
 
-                    /*
-                     * The assistant has finished speaking
-                     * and the current request is complete.
-                     *
-                     * Automatically reopen the microphone
-                     * for the next user turn.
-                     */
+                    if (isSpeaking) {
+                        stopSpeech();
+                    }
 
-                    startButton.disabled =
+
+                    addMessage(
+                        "You",
+                        prompt,
+                        "user"
+                    );
+
+
+                    isProcessing =
                         true;
 
 
-                    stopButton.disabled =
+                    setState(
+                        "Thinking...",
+                        "CareFlow is processing your request."
+                    );
+
+
+                    setConnection(
+                        "Processing"
+                    );
+
+
+                    await sendToAgent(
+                        prompt
+                    );
+
+
+                    isProcessing =
                         false;
-
-
-                    status.textContent =
-                        "Listening... Speak now.";
-
-
-                    /*
-                     * Small delay prevents Chrome from
-                     * trying to start recognition at the
-                     * exact moment speech synthesis finishes.
-                     */
-
-                    setTimeout(
-                        () => {
-
-                            if (
-                                voiceSessionActive &&
-                                !isListening &&
-                                !isSpeaking &&
-                                !isProcessing
-                            ) {
-
-                                try {
-
-                                    recognition.start();
-
-                                } catch (error) {
-
-                                    console.debug(
-                                        "Recognition restart skipped:",
-                                        error
-                                    );
-                                }
-                            }
-
-                        },
-                        250
-                    );
-
-
-                    return;
                 }
-
-
-                const chunk =
-                    chunks[currentChunk];
-
-
-                if (
-                    !chunk.text ||
-                    !chunk.text.trim()
-                ) {
-
-                    currentChunk++;
-
-                    speakNextChunk();
-
-                    return;
-                }
-
-
-
-                // ==================================================
-                // CREATE UTTERANCE
-                // ==================================================
-
-                const utterance =
-                    new SpeechSynthesisUtterance(
-                        chunk.text
-                    );
-
-
-                // ==================================================
-                // VOICE
-                // ==================================================
-
-                if (selectedVoice) {
-
-                    utterance.voice =
-                        selectedVoice;
-                }
-
-
-                utterance.lang =
-                    "en-US";
-
-
-
-                // ==================================================
-                // NATURAL HUMAN DELIVERY
-                // ==================================================
-
-                /*
-                 * Slightly slower than default.
-                 *
-                 * This makes the receptionist sound
-                 * conversational rather than like it
-                 * is reading text.
-                 */
-
-                utterance.rate =
-                    0.88;
-
-
-                utterance.pitch =
-                    1.02;
-
-
-                utterance.volume =
-                    1.0;
-
-
-
-                // ==================================================
-                // SPEECH START
-                // ==================================================
-
-                utterance.onstart =
-                    () => {
-
-                        if (
-                            !isSpeaking ||
-                            myGeneration !==
-                            speechGeneration
-                        ) {
-
-                            window.speechSynthesis.cancel();
-
-                            return;
-                        }
-
-
-                        status.textContent =
-                            "CareFlow AI is speaking...";
-                    };
-
-
-
-                // ==================================================
-                // SPEECH END
-                // ==================================================
-
-                utterance.onend =
-                    () => {
-
-                        if (
-                            !isSpeaking ||
-                            myGeneration !==
-                            speechGeneration
-                        ) {
-
-                            return;
-                        }
-
-
-                        currentChunk++;
-
-
-                        /*
-                         * Real pause between chunks.
-                         *
-                         * This is much more reliable
-                         * than putting dots into the text.
-                         */
-
-                        if (
-                            chunk.pause >
-                            0
-                        ) {
-
-                            speechPauseTimer =
-                                setTimeout(
-                                    () => {
-
-                                        speechPauseTimer =
-                                            null;
-
-
-                                        if (
-                                            isSpeaking &&
-                                            myGeneration ===
-                                            speechGeneration
-                                        ) {
-
-                                            speakNextChunk();
-                                        }
-
-                                    },
-                                    chunk.pause
-                                );
-
-                        } else {
-
-                            speakNextChunk();
-                        }
-                    };
-
-
-
-                // ==================================================
-                // SPEECH ERROR
-                // ==================================================
-
-                utterance.onerror =
-                    (event) => {
-
-                        /*
-                         * Chrome reports "interrupted"
-                         * when speechSynthesis.cancel()
-                         * is intentionally called.
-                         */
-
-                        if (
-                            event.error ===
-                            "interrupted"
-                        ) {
-
-                            return;
-                        }
-
-
-                        console.error(
-                            "Speech synthesis error:",
-                            event
-                        );
-
-
-                        if (
-                            myGeneration !==
-                            speechGeneration
-                        ) {
-
-                            return;
-                        }
-
-
-                        isSpeaking =
-                            false;
-
-
-                        if (
-                            speechPauseTimer !==
-                            null
-                        ) {
-
-                            clearTimeout(
-                                speechPauseTimer
-                            );
-
-                            speechPauseTimer =
-                                null;
-                        }
-
-
-                        startButton.disabled =
-                            isProcessing;
-
-
-                        stopButton.disabled =
-                            !isProcessing;
-
-
-                        status.textContent =
-                            "Voice output failed.";
-                    };
-
-
-
-                // ==================================================
-                // SPEAK
-                // ==================================================
-
-                window.speechSynthesis.speak(
-                    utterance
-                );
-            }
-
-
-
-            // ==================================================
-            // START SPEECH
-            // ==================================================
-
-            speakNextChunk();
+            );
         }
+    );
 
-
-
-        // ==================================================
-        // DISPLAY CONVERSATION
-        // ==================================================
-
-        function addMessage(
-            sender,
-            text,
-            className
-        ) {
-
-            const message =
-                document.createElement(
-                    "div"
-                );
-
-
-            message.className =
-                "message " +
-                className;
-
-
-            const label =
-                document.createElement(
-                    "div"
-                );
-
-
-            label.className =
-                "label";
-
-
-            label.textContent =
-                sender;
-
-
-            const content =
-                document.createElement(
-                    "div"
-                );
-
-
-            /*
-             * SECURITY:
-             *
-             * Use textContent rather than
-             * innerHTML so model-generated
-             * HTML or JavaScript cannot execute.
-             */
-
-            content.textContent =
-                text;
-
-
-            message.appendChild(
-                label
-            );
-
-
-            message.appendChild(
-                content
-            );
-
-
-            conversation.appendChild(
-                message
-            );
-
-
-            conversation.scrollTop =
-                conversation.scrollHeight;
-        }
-
-
-    </script>
-
+</script>
 
 </body>
-
 </html>
