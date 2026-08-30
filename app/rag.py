@@ -47,9 +47,40 @@ client = InferenceClient(
 )
 
 
+# --------------------------------------------------
+# EMBEDDING CONFIGURATION
+# --------------------------------------------------
+
 EMBEDDING_MODEL = (
     "sentence-transformers/all-MiniLM-L6-v2"
 )
+
+
+# --------------------------------------------------
+# EMBEDDING CACHE
+# --------------------------------------------------
+#
+# Avoid repeatedly calling Hugging Face for the same
+# query during a voice conversation.
+#
+
+_embedding_cache: dict[str, np.ndarray] = {}
+
+
+# --------------------------------------------------
+# RAG MEMORY CACHE
+# --------------------------------------------------
+#
+# Keep the FAISS index and chunks in memory after
+# the first load.
+#
+# This avoids reading the index and chunks from disk
+# on every FAQ request.
+#
+
+_cached_index = None
+
+_cached_chunks: list[str] | None = None
 
 
 # --------------------------------------------------
@@ -119,10 +150,32 @@ def create_chunks(
 def create_embeddings(
     texts: list[str]
 ) -> np.ndarray:
+    """
+    Create embeddings while caching previously
+    requested texts.
+    """
 
     embeddings = []
 
     for text in texts:
+
+        cache_key = text.strip().lower()
+
+        # --------------------------------------------------
+        # RETURN CACHED EMBEDDING
+        # --------------------------------------------------
+
+        if cache_key in _embedding_cache:
+
+            embeddings.append(
+                _embedding_cache[cache_key].copy()
+            )
+
+            continue
+
+        # --------------------------------------------------
+        # CREATE NEW EMBEDDING
+        # --------------------------------------------------
 
         result = client.feature_extraction(
             text,
@@ -136,9 +189,21 @@ def create_embeddings(
 
         vector = vector.reshape(-1)
 
-        embeddings.append(vector)
+        # --------------------------------------------------
+        # CACHE EMBEDDING
+        # --------------------------------------------------
 
-    return np.vstack(embeddings)
+        _embedding_cache[cache_key] = (
+            vector.copy()
+        )
+
+        embeddings.append(
+            vector
+        )
+
+    return np.vstack(
+        embeddings
+    )
 
 
 # --------------------------------------------------
@@ -147,9 +212,14 @@ def create_embeddings(
 
 def build_index():
 
+    global _cached_index
+    global _cached_chunks
+
     text = load_knowledge()
 
-    chunks = create_chunks(text)
+    chunks = create_chunks(
+        text
+    )
 
     if not chunks:
 
@@ -165,6 +235,7 @@ def build_index():
 
     # Normalize vectors so inner product
     # behaves like cosine similarity.
+
     faiss.normalize_L2(
         embeddings
     )
@@ -184,6 +255,7 @@ def build_index():
 
     # Store chunks in JSON so the FAISS
     # index position maps reliably to a chunk.
+
     CHUNKS_FILE.write_text(
         json.dumps(
             chunks,
@@ -192,6 +264,14 @@ def build_index():
         ),
         encoding="utf-8"
     )
+
+    # --------------------------------------------------
+    # UPDATE IN-MEMORY CACHE
+    # --------------------------------------------------
+
+    _cached_index = index
+
+    _cached_chunks = chunks
 
     return {
         "success": True,
@@ -206,6 +286,20 @@ def build_index():
 
 def load_index():
 
+    global _cached_index
+
+    # --------------------------------------------------
+    # RETURN MEMORY-CACHED INDEX
+    # --------------------------------------------------
+
+    if _cached_index is not None:
+
+        return _cached_index
+
+    # --------------------------------------------------
+    # LOAD FROM DISK ON FIRST REQUEST
+    # --------------------------------------------------
+
     if not FAISS_INDEX_FILE.exists():
 
         raise FileNotFoundError(
@@ -213,9 +307,11 @@ def load_index():
             "Run build_index() first."
         )
 
-    return faiss.read_index(
+    _cached_index = faiss.read_index(
         str(FAISS_INDEX_FILE)
     )
+
+    return _cached_index
 
 
 # --------------------------------------------------
@@ -224,6 +320,20 @@ def load_index():
 
 def load_chunks() -> list[str]:
 
+    global _cached_chunks
+
+    # --------------------------------------------------
+    # RETURN MEMORY-CACHED CHUNKS
+    # --------------------------------------------------
+
+    if _cached_chunks is not None:
+
+        return _cached_chunks
+
+    # --------------------------------------------------
+    # LOAD FROM DISK ON FIRST REQUEST
+    # --------------------------------------------------
+
     if not CHUNKS_FILE.exists():
 
         raise FileNotFoundError(
@@ -231,24 +341,25 @@ def load_chunks() -> list[str]:
             "Run build_index() first."
         )
 
-    return json.loads(
+    _cached_chunks = json.loads(
         CHUNKS_FILE.read_text(
             encoding="utf-8"
         )
     )
 
+    return _cached_chunks
 
 
 # --------------------------------------------------
 # QUERY NORMALIZATION
 # --------------------------------------------------
 
-def normalize_query(query: str) -> str:
+def normalize_query(
+    query: str
+) -> str:
     """
     Normalize common conversational variations into
     terminology used by the clinic knowledge base.
-
-    This improves retrieval for short voice queries.
     """
 
     normalized = query.lower().strip()
@@ -269,6 +380,7 @@ def normalize_query(query: str) -> str:
         phrase in normalized
         for phrase in walk_in_phrases
     ):
+
         return (
             "walk-in appointments "
             "walk in without an appointment "
@@ -288,6 +400,7 @@ def normalize_query(query: str) -> str:
         phrase in normalized
         for phrase in insurance_phrases
     ):
+
         return (
             "insurance accepted insurance plans "
             "insurance coverage insurance requirements"
@@ -307,6 +420,7 @@ def normalize_query(query: str) -> str:
         phrase in normalized
         for phrase in preparation_phrases
     ):
+
         return (
             "what to bring appointment preparation "
             "photo ID medical records medication information"
@@ -314,9 +428,6 @@ def normalize_query(query: str) -> str:
 
     return query
 
-# --------------------------------------------------
-# SEARCH KNOWLEDGE
-# --------------------------------------------------
 
 # --------------------------------------------------
 # SEARCH KNOWLEDGE
@@ -329,27 +440,31 @@ def search_knowledge(
 ) -> list[dict]:
     """
     Search the clinic knowledge base using semantic similarity.
-
-    A slightly lower threshold is used because short,
-    conversational voice queries can have lower embedding
-    similarity even when they clearly refer to a known
-    clinic policy.
-
-    The caller can still override the threshold when needed.
     """
+
+    if not query or not query.strip():
+
+        return []
+
+    # --------------------------------------------------
+    # LOAD CACHED RAG DATA
+    # --------------------------------------------------
 
     index = load_index()
 
     chunks = load_chunks()
 
-    if not query or not query.strip():
-        return []
+    # --------------------------------------------------
+    # NORMALIZE QUERY
+    # --------------------------------------------------
 
-    #normalize conversational voice query
+    normalized_query = normalize_query(
+        query
+    )
 
-    normalized_query = normalize_query(query)
-
-    #create query embedding
+    # --------------------------------------------------
+    # CREATE QUERY EMBEDDING
+    # --------------------------------------------------
 
     query_embedding = create_embeddings(
         [normalized_query]
@@ -358,6 +473,10 @@ def search_knowledge(
     faiss.normalize_L2(
         query_embedding
     )
+
+    # --------------------------------------------------
+    # SEARCH FAISS
+    # --------------------------------------------------
 
     top_k = min(
         top_k,
@@ -369,6 +488,10 @@ def search_knowledge(
         top_k
     )
 
+    # --------------------------------------------------
+    # BUILD RESULTS
+    # --------------------------------------------------
+
     results = []
 
     for score, index_id in zip(
@@ -379,7 +502,9 @@ def search_knowledge(
         if index_id < 0:
             continue
 
-        score = float(score)
+        score = float(
+            score
+        )
 
         if score < relevance_threshold:
             continue
