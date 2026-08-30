@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import date, timedelta
 
 from dotenv import load_dotenv
@@ -67,6 +68,32 @@ app = FastAPI(
     title="CareFlow AI"
 )
 
+# ==================================================
+# REQUEST LATENCY LOGGING
+# ==================================================
+
+@app.middleware("http")
+async def log_request_latency(request, call_next):
+
+    start = time.perf_counter()
+
+    response = await call_next(request)
+
+    latency_ms = (
+        time.perf_counter() - start
+    ) * 1000
+
+    if request.url.path == "/api/chat":
+
+        logger.info(
+            "CHAT LATENCY: method=%s path=%s status=%s latency_ms=%.2f",
+            request.method,
+            request.url.path,
+            response.status_code,
+            latency_ms,
+        )
+
+    return response
 
 # ==================================================
 # DATABASE INITIALIZATION
@@ -1226,6 +1253,61 @@ def health():
 
 
 # ==================================================
+# FIND NEXT AVAILABLE DATE
+# ==================================================
+
+def find_next_available_date(
+    start_date: str | None = None,
+    exclude_date: str | None = None,
+    max_days: int = 30,
+) -> tuple[str, list[dict]] | None:
+    """
+    Find the next date with verified appointment availability.
+
+    Availability always comes from the appointment database.
+    No date or slot is invented by the application.
+    """
+
+    if start_date:
+        try:
+            current_date = date.fromisoformat(
+                start_date
+            )
+        except ValueError:
+            current_date = date.today()
+    else:
+        current_date = date.today()
+
+    for offset in range(max_days + 1):
+
+        candidate_date = (
+            current_date
+            + timedelta(days=offset)
+        ).isoformat()
+
+        if candidate_date == exclude_date:
+            continue
+
+        result = get_available_appointments(
+            date=candidate_date
+        )
+
+        logger.info(
+            "LOCAL DATE AVAILABILITY CHECK: date=%s result=%s",
+            candidate_date,
+            result
+        )
+
+        if result.get("available") and result.get("slots"):
+            return (
+                candidate_date,
+                result.get("slots", [])
+            )
+
+    return None
+
+
+# ==================================================
 # LOCAL APPOINTMENT HANDLER
 # ==================================================
 #
@@ -1322,6 +1404,110 @@ def handle_local_appointment_request(
             "appointment?"
         )
 
+    resolved_time = resolve_time(message)
+
+    availability_request = any(
+        phrase in normalized
+        for phrase in [
+            "what times are available",
+            "what time is available",
+            "what times do you have",
+            "available times",
+            "availability",
+            "what appointments are available",
+            "what appointment times",
+            "show available times",
+            "show me the available times",
+            "what slots are available",
+            "available slots",
+        ]
+    )
+
+    date_availability_request = any(
+        phrase in normalized
+        for phrase in [
+            "which date has availability",
+            "which dates have availability",
+            "what date has availability",
+            "what dates have availability",
+            "which date is available",
+            "which dates are available",
+            "what date is available",
+            "what dates are available",
+            "when is the next available date",
+            "next available date",
+            "what day has availability",
+            "which day has availability",
+        ]
+    )
+
+
+    # ==================================================
+    # DATE WAS PROVIDED WITHOUT A BOOKING REQUEST OR TIME
+    # ==================================================
+    #
+    # If the user changes the date conversationally, such as
+    # "what about September 19th?", check that date directly
+    # instead of sending the question to the LLM.
+    #
+
+    if (
+        resolved_date
+        and not booking_request
+        and not resolved_time
+        and not availability_request
+        and not date_availability_request
+    ):
+
+        result = get_available_appointments(
+            date=state["date"]
+        )
+
+        logger.info(
+            "LOCAL DATE CHANGE AVAILABILITY RESULT: %s",
+            result
+        )
+
+        if not result.get("available"):
+
+            return (
+                f"There are no available appointment "
+                f"slots on "
+                f"{format_spoken_date(state['date'])}. "
+                f"Would you like to check another date?"
+            )
+
+        slots = result.get(
+            "slots",
+            []
+        )
+
+        available_slots[
+            conversation_id
+        ] = {
+            slot["appointment_id"]
+            for slot in slots
+            if slot.get("appointment_id") is not None
+        }
+
+        enforce_slot_limits(
+            conversation_id
+        )
+
+        times = [
+            format_spoken_time(
+                slot["time"]
+            )
+            for slot in slots
+        ]
+
+        return (
+            f"I have {format_time_list(times)} "
+            f"available on "
+            f"{format_spoken_date(state['date'])}. "
+            f"Which time works best for you?"
+        )
+
 
     # ==================================================
     # NO DATE YET
@@ -1352,6 +1538,85 @@ def handle_local_appointment_request(
             "available slots",
         ]
     )
+
+
+    # ==================================================
+    # USER ASKS WHICH DATE HAS AVAILABILITY
+    # ==================================================
+
+    date_availability_request = any(
+        phrase in normalized
+        for phrase in [
+            "which date has availability",
+            "which dates have availability",
+            "what date has availability",
+            "what dates have availability",
+            "which date is available",
+            "which dates are available",
+            "what date is available",
+            "what dates are available",
+            "when is the next available date",
+            "next available date",
+            "what day has availability",
+            "which day has availability",
+        ]
+    )
+
+
+    if date_availability_request:
+
+        search_start = (
+            state["date"]
+            if state["date"]
+            else date.today().isoformat()
+        )
+
+        found = find_next_available_date(
+            start_date=search_start,
+            exclude_date=state["date"],
+        )
+
+        if not found:
+
+            return (
+                "I couldn't find another available "
+                "appointment date in the next 30 days. "
+                "Would you like to try a different date?"
+            )
+
+        available_date, slots = found
+
+        state["date"] = available_date
+        state["appointment_id"] = None
+        state["time"] = None
+        state["confirmed"] = False
+        state["patient_name"] = None
+
+        available_slots[
+            conversation_id
+        ] = {
+            slot["appointment_id"]
+            for slot in slots
+            if slot.get("appointment_id") is not None
+        }
+
+        enforce_slot_limits(
+            conversation_id
+        )
+
+        times = [
+            format_spoken_time(
+                slot["time"]
+            )
+            for slot in slots
+        ]
+
+        return (
+            f"The next available date is "
+            f"{format_spoken_date(available_date)}. "
+            f"I have {format_time_list(times)} "
+            f"available. Which time works best for you?"
+        )
 
 
     if availability_request:
@@ -1809,6 +2074,8 @@ def chat(
         request.message
         .strip()
     )
+
+    request_start = time.perf_counter()
 
 
     try:
@@ -2467,11 +2734,31 @@ def chat(
                         "book_appointment"
                     ):
 
-                        patient_name = (
-                            arguments.get(
-                                "patient_name"
-                            )
+                        patient_name = arguments.get(
+                            "patient_name"
                         )
+
+                        if isinstance(patient_name, str):
+                            normalized_name = patient_name.strip()
+
+                            name_prefixes = (
+                                "i am ",
+                                "i'm ",
+                                "my name is ",
+                                "this is  ",
+                            )
+                            lowered_name = normalized_name.lower()
+
+                            for prefix in name_prefixes:
+                                if lowered_name.startswith(prefix):
+
+                                    normalized_name = normalized_name[
+                                        len(prefix):
+                                    ].strip()
+
+                                    break
+
+                                patient_name = normalized_name
 
 
                         state = get_booking_state(

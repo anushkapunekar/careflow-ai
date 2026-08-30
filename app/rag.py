@@ -176,11 +176,15 @@ def create_embeddings(
         # --------------------------------------------------
         # CREATE NEW EMBEDDING
         # --------------------------------------------------
-
-        result = client.feature_extraction(
-            text,
-            model=EMBEDDING_MODEL
+        try:
+            result = client.feature_extraction(
+               text,
+               model=EMBEDDING_MODEL
         )
+        except Exception as error:
+            raise RuntimeError(
+                "Knowledg retrieval service is temporarily unavailable."
+            ) from error    
 
         vector = np.asarray(
             result,

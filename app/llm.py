@@ -69,6 +69,11 @@ BOOKING:
 - Booking requires a verified appointment ID.
 - The appointment ID must come from an availability tool.
 - The patient name must be explicitly provided by the user.
+- If the user says "I am <name>", "my name is <name>", or similar,
+  treat only the actual name as the patient name.
+- When confirming a booking, address the patient using only their
+  actual name. For example, if the user says "I am Shawn", say
+  "Your appointment has been booked, Shawn", not "I am Shawn".
 - The user must explicitly confirm before booking.
 - "yes", "sure", "go ahead" and "book it" are confirmations,
   not patient names.

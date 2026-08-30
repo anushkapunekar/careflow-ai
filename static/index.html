@@ -987,6 +987,11 @@ let speechPauseTimer = null;
 
 let speechGeneration = 0;
 
+let interruptionDetected = false;
+
+let voiceTurnStartTime = null;
+let voiceApiStartTime = null;
+
 
 /* =========================================================
    SPEECH RECOGNITION
@@ -1001,6 +1006,135 @@ const recognition =
         ? new SpeechRecognition()
         : null;
 
+
+/* =========================================================
+   BARGE-IN RECOGNITION
+   Detects when the user starts speaking while CareFlow
+   is speaking.
+========================================================= */
+
+const bargeInRecognition =
+    SpeechRecognition
+        ? new SpeechRecognition()
+        : null;
+
+
+let bargeInListening = false;
+
+
+if (bargeInRecognition) {
+
+    bargeInRecognition.lang =
+        "en-US";
+
+    bargeInRecognition.interimResults =
+        true;
+
+    bargeInRecognition.continuous =
+        false;
+
+
+    bargeInRecognition.onstart =
+        () => {
+
+            bargeInListening =
+                true;
+        };
+
+
+    bargeInRecognition.onresult =
+        (event) => {
+
+            if (
+                !isSpeaking ||
+                !voiceSessionActive
+            ) {
+                return;
+            }
+
+
+            const transcript =
+                event.results[0][0]
+                    .transcript
+                    .trim();
+
+
+            if (!transcript) {
+                return;
+            }
+
+
+            /*
+             * User has started speaking while
+             * CareFlow is speaking.
+             *
+             * Stop the current speech immediately.
+             */
+
+            stopSpeech();
+
+
+            try {
+
+                bargeInRecognition.stop();
+
+            } catch (error) {
+
+                console.debug(
+                    "Barge-in recognition stop skipped:",
+                    error
+                );
+            }
+
+
+            /*
+             * Start the normal recognition flow
+             * so the user's complete utterance can
+             * be captured.
+             */
+
+            if (
+                recognition &&
+                !isListening &&
+                !isProcessing
+            ) {
+
+                try {
+
+                    recognition.start();
+
+                } catch (error) {
+
+                    console.debug(
+                        "Normal recognition start skipped:",
+                        error
+                    );
+                }
+            }
+        };
+
+
+    bargeInRecognition.onerror =
+        (event) => {
+
+            console.debug(
+                "Barge-in recognition:",
+                event.error
+            );
+
+            bargeInListening =
+                false;
+        };
+
+
+    bargeInRecognition.onend =
+        () => {
+
+            bargeInListening =
+                false;
+        };
+}
+        
 
 if (!recognition) {
 
@@ -1035,11 +1169,19 @@ if (recognition) {
             isListening =
                 true;
 
+            if (isSpeaking){
+                interruptionDetected = 
+                   true;
+
+                stopSpeech();   
+            }    
+
             setState(
-                "Listening...",
-                "Speak naturally. I'm listening.",
-                true
+            "Listening...",
+            "Speak naturally. I'm listening.",
+            true
             );
+            
 
             setConnection(
                 "Listening"
@@ -1063,6 +1205,13 @@ if (recognition) {
             if (isProcessing) {
                 return;
             }
+
+            voiceTurnStartTime = 
+            performance.now();
+
+            console.log(
+                "USER SPEECH CAPTURED"
+            );
 
             const transcript =
                 event.results[0][0]
@@ -1335,6 +1484,9 @@ async function sendToAgent(
 
     try {
 
+        voiceApiStartTime = 
+           performance.now();
+
         const response =
             await fetch(
                 "/api/chat",
@@ -1368,6 +1520,14 @@ async function sendToAgent(
 
         const data =
             await response.json();
+
+        const apiLatency =
+            performance.now() -
+            voiceApiStartTime;
+
+        console.log(
+           `⚡ API LATENCY: ${apiLatency.toFixed(0)} ms`
+        );    
 
 
         const reply =
@@ -1816,6 +1976,34 @@ function stopSpeech() {
         false;
 }
 
+/* =========================================================
+   START BARGE-IN DETECTION
+========================================================= */
+
+function startBargeInDetection() {
+
+    if (
+        !bargeInRecognition ||
+        bargeInListening ||
+        !isSpeaking ||
+        !voiceSessionActive
+    ) {
+        return;
+    }
+
+
+    try {
+
+        bargeInRecognition.start();
+
+    } catch (error) {
+
+        console.debug(
+            "Barge-in recognition start skipped:",
+            error
+        );
+    }
+}
 
 /* =========================================================
    SPEAK
@@ -2043,6 +2231,24 @@ function speak(
     window.speechSynthesis.speak(
         utterance
     );
+
+    const speechStartTime = 
+        performance.now();
+
+    if (
+        voiceTurnStartTime !== null
+    ) {
+        const totalVoiceLatency = 
+            speechStartTime -
+            voiceTurnStartTime;
+
+        console.log(
+            `🗣️ VOICE RESPONSE START: ${totalVoiceLatency.toFixed(0)} ms`
+
+        );    
+    }
+
+    startBargeInDetection();
 }
 
 
