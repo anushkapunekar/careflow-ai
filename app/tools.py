@@ -128,7 +128,6 @@ def get_available_appointments(
         }
 
         for appointment in appointments
-
     ]
 
 
@@ -215,7 +214,6 @@ def book_appointment(
     # --------------------------------------------------
 
     connection = get_connection()
-
 
     try:
 
@@ -309,12 +307,23 @@ def book_appointment(
         # --------------------------------------------------
 
         return {
+
             "success": True,
-            "appointment_id": appointment["id"],
-            "date": appointment["appointment_date"],
-            "time": appointment["appointment_time"],
-            "patient_name": appointment["patient_name"],
-            "status": appointment["status"]
+
+            "appointment_id":
+                appointment["id"],
+
+            "date":
+                appointment["appointment_date"],
+
+            "time":
+                appointment["appointment_time"],
+
+            "patient_name":
+                appointment["patient_name"],
+
+            "status":
+                appointment["status"]
         }
 
 
@@ -337,4 +346,87 @@ def book_appointment(
 
     finally:
 
+        connection.close()
+
+
+# ==================================================
+# CANCEL APPOINTMENT
+# ==================================================
+
+# ==================================================
+# CANCEL APPOINTMENT
+# ==================================================
+
+def cancel_appointment(
+    appointment_id: int
+) -> dict:
+
+    if not isinstance(appointment_id, int) or appointment_id <= 0:
+        return {
+            "success": False,
+            "message": "A valid appointment slot is required."
+        }
+
+    connection = get_connection()
+
+    try:
+        cursor = connection.execute(
+            """
+            UPDATE appointments
+            SET
+                patient_name = NULL,
+                status = 'available'
+            WHERE id = ?
+            AND status = 'booked'
+            """,
+            (appointment_id,)
+        )
+
+        if cursor.rowcount == 0:
+            connection.rollback()
+
+            return {
+                "success": False,
+                "message": "The appointment was not found or is not currently booked."
+            }
+
+        connection.commit()
+
+        appointment = connection.execute(
+            """
+            SELECT
+                id,
+                appointment_date,
+                appointment_time,
+                patient_name,
+                status
+            FROM appointments
+            WHERE id = ?
+            """,
+            (appointment_id,)
+        ).fetchone()
+
+        if appointment is None:
+            return {
+                "success": False,
+                "message": "The appointment could not be confirmed as cancelled."
+            }
+
+        return {
+            "success": True,
+            "appointment_id": appointment["id"],
+            "date": appointment["appointment_date"],
+            "time": appointment["appointment_time"],
+            "status": appointment["status"]
+        }
+
+    except Exception:
+        connection.rollback()
+
+        return {
+            "success": False,
+            "message": "The appointment could not be cancelled because of a database error."
+        }
+
+    finally:
         connection.close()

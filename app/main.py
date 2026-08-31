@@ -27,6 +27,7 @@ from app.tools import (
     check_appointment_availability,
     get_available_appointments,
     book_appointment,
+    cancel_appointment,
 )
 
 from app.database import (
@@ -61,6 +62,7 @@ logging.basicConfig(
 
 logger = logging.getLogger("careflow")
 
+
 def clean_voice_response(text: str) -> str:
     if not text:
         return ""
@@ -93,6 +95,7 @@ app = FastAPI(
     title="CareFlow AI"
 )
 
+
 # ==================================================
 # REQUEST LATENCY LOGGING
 # ==================================================
@@ -119,6 +122,7 @@ async def log_request_latency(request, call_next):
         )
 
     return response
+
 
 # ==================================================
 # DATABASE INITIALIZATION
@@ -157,41 +161,23 @@ conversations: dict[str, list[dict]] = {}
 # ==================================================
 # APPOINTMENT SESSION STATE
 # ==================================================
-#
-# This is deliberately kept outside the LLM.
-#
-# The backend, not the model, owns:
-#
-# - requested date
-# - selected appointment
-# - confirmation state
-# - patient name
-#
-# This makes booking deterministic and much safer.
-# ==================================================
 
 booking_states: dict[str, dict] = {}
 
 
-# Example:
+# ==================================================
+# MOST RECENT COMPLETED BOOKING
+# ==================================================
 #
-# {
-#     "voice-123": {
-#         "date": "2026-09-16",
-#         "appointment_id": 44,
-#         "time": "14:00",
-#         "confirmed": False,
-#         "patient_name": None
-#     }
-# }
+# Keeps the most recently booked appointment available
+# for cancellation during the same conversation.
+# ==================================================
+
+completed_bookings: dict[str, dict] = {}
 
 
 # ==================================================
 # VERIFIED AVAILABLE SLOTS
-# ==================================================
-#
-# These are appointment IDs actually returned by
-# the database during this conversation.
 # ==================================================
 
 available_slots: dict[str, set[int]] = {}
@@ -398,14 +384,25 @@ def resolve_date(
         weekday_number,
     ) in WEEKDAYS.items():
 
-        if f"next {weekday_name}" in normalized:
+        if (
+            f"next {weekday_name}" in normalized
+            or f"this {weekday_name}" in normalized
+            or re.fullmatch(
+                rf"(?:on\s+)?{weekday_name}",
+                normalized,
+            )
+        ):
 
             days_ahead = (
                 weekday_number -
                 today.weekday()
             ) % 7
 
-            if days_ahead == 0:
+            if (
+                f"next {weekday_name}" in normalized
+                and days_ahead == 0
+            ):
+
                 days_ahead = 7
 
             resolved = (
@@ -418,14 +415,6 @@ def resolve_date(
 
     # --------------------------------------------------
     # DAY + MONTH
-    #
-    # 15 September
-    # 15th September
-    # 15 September 2026
-    #
-    # Voice users naturally say dates this way. Resolve
-    # yearless dates against the backend's current year
-    # instead of allowing the LLM to infer a year.
     # --------------------------------------------------
 
     day_month_pattern = (
@@ -462,8 +451,6 @@ def resolve_date(
 
         else:
 
-            # The application date is authoritative.
-            # For a yearless date, use the current year.
             year_number = today.year
 
             try:
@@ -474,8 +461,6 @@ def resolve_date(
                     day_number,
                 )
 
-                # If the date has already passed this year,
-                # resolve it to the next occurrence.
                 if candidate < today:
 
                     year_number += 1
@@ -501,10 +486,6 @@ def resolve_date(
 
     # --------------------------------------------------
     # EXPLICIT MONTH + DAY
-    #
-    # September 15
-    # September 15th
-    # September 15, 2026
     # --------------------------------------------------
 
     month_pattern = (
@@ -639,15 +620,9 @@ def get_date_context(
 # ==================================================
 
 def detect_faq_intent(message: str) -> str | None:
-    """
-    Detect common clinic FAQ intents locally.
-
-    These questions do not require the LLM. The actual
-    answer is still retrieved from the clinic knowledge
-    base, keeping the knowledge base authoritative.
-    """
 
     normalized = message.lower().strip()
+
 
     # WALK-IN
 
@@ -774,6 +749,8 @@ def detect_faq_intent(message: str) -> str | None:
         "cancel my appointment",
         "cancel an appointment",
         "cancel appointment",
+        "cancel my booking",
+        "cancel booking",
         "cancellation",
     )
 
@@ -821,7 +798,6 @@ def resolve_time(
 
     # --------------------------------------------------
     # 11:30 AM
-    # 11:30 a.m.
     # --------------------------------------------------
 
     match = re.search(
@@ -867,7 +843,6 @@ def resolve_time(
 
     # --------------------------------------------------
     # 11 AM
-    # 2 PM
     # --------------------------------------------------
 
     match = re.search(
@@ -903,9 +878,7 @@ def resolve_time(
 
 
     # --------------------------------------------------
-    # Bare hour:
-    #
-    # "11:30"
+    # Bare hour
     # --------------------------------------------------
 
     match = re.search(
@@ -951,37 +924,21 @@ def is_confirmation(
     confirmation_patterns = [
 
         r"^yes$",
-
         r"^yes[!.]?$",
-
         r"^yes go ahead$",
-
         r"^go ahead$",
-
         r"^book it$",
-
         r"^book$",
-
         r"^sure$",
-
         r"^sure thing$",
-
         r"^that's correct$",
-
         r"^that is correct$",
-
         r"^correct$",
-
         r"^please do$",
-
         r"^do it$",
-
         r"^absolutely$",
-
         r"^yep$",
-
         r"^yeah$",
-
         r"^yeah go ahead$",
     ]
 
@@ -1066,21 +1023,14 @@ def looks_like_name(
     if len(value) > 100:
         return False
 
-    # Names should not contain numbers.
-
     if re.search(
         r"\d",
         value,
     ):
         return False
 
-    # Avoid treating questions as names.
-
     if "?" in value:
         return False
-
-    # Allow normal alphabetic names with spaces,
-    # apostrophes and hyphens.
 
     if not re.fullmatch(
         r"[A-Za-z][A-Za-z '\-]{0,98}",
@@ -1120,6 +1070,7 @@ def extract_patient_name(message: str) -> str | None:
 
     return None
 
+
 # ==================================================
 # EMERGENCY DETECTION
 # ==================================================
@@ -1137,39 +1088,22 @@ def is_emergency(
     emergency_terms = [
 
         "chest pain",
-
         "difficulty breathing",
-
         "can't breathe",
-
         "cannot breathe",
-
         "trouble breathing",
-
         "shortness of breath",
-
         "severe bleeding",
-
         "unconscious",
-
         "passed out",
-
         "stroke",
-
         "seizure",
-
         "heart attack",
-
         "critical patient",
-
         "patient is critical",
-
         "patient critical",
-
         "life threatening",
-
         "life-threatening",
-
         "emergency",
     ]
 
@@ -1196,73 +1130,39 @@ def looks_like_clinic_question(
     clinic_terms = [
 
         "walk in",
-
         "walk-in",
-
         "walkins",
-
         "walk-ins",
-
         "insurance",
-
         "bring",
-
         "what should i bring",
-
         "documents",
-
         "paperwork",
-
         "clinic hours",
-
         "opening hours",
-
         "closing time",
-
         "open",
-
         "close",
-
         "address",
-
         "location",
-
         "where are you",
-
         "where is the clinic",
-
         "services",
-
         "service",
-
         "procedure",
-
         "preparation",
-
         "prepare",
-
         "prescription",
-
         "medicine",
-
         "medication",
-
         "payment",
-
         "cash",
-
         "credit card",
-
         "parking",
-
         "parking lot",
-
         "telehealth",
-
         "virtual appointment",
-
         "doctor",
-
         "provider",
     ]
 
@@ -1295,8 +1195,6 @@ def format_knowledge_response(
 
     content = content.strip()
 
-    # Remove obvious document headings.
-
     lines = content.splitlines()
 
     cleaned_lines = []
@@ -1307,8 +1205,6 @@ def format_knowledge_response(
 
         if not stripped:
             continue
-
-        # Skip all-uppercase heading lines.
 
         if (
             stripped.isupper()
@@ -1392,6 +1288,7 @@ def health():
         "status": "healthy"
     }
 
+
 @app.get("/api/ready")
 def readiness():
 
@@ -1415,22 +1312,23 @@ def find_next_available_date(
     exclude_date: str | None = None,
     max_days: int = 30,
 ) -> tuple[str, list[dict]] | None:
-    """
-    Find the next date with verified appointment availability.
-
-    Availability always comes from the appointment database.
-    No date or slot is invented by the application.
-    """
 
     if start_date:
+
         try:
+
             current_date = date.fromisoformat(
                 start_date
             )
+
         except ValueError:
+
             current_date = date.today()
+
     else:
+
         current_date = date.today()
+
 
     for offset in range(max_days + 1):
 
@@ -1453,6 +1351,7 @@ def find_next_available_date(
         )
 
         if result.get("available") and result.get("slots"):
+
             return (
                 candidate_date,
                 result.get("slots", [])
@@ -1463,11 +1362,6 @@ def find_next_available_date(
 
 # ==================================================
 # LOCAL APPOINTMENT HANDLER
-# ==================================================
-#
-# This is the biggest performance improvement.
-#
-# Common appointment operations do NOT require Groq.
 # ==================================================
 
 def handle_local_appointment_request(
@@ -1485,9 +1379,10 @@ def handle_local_appointment_request(
         conversation_id
     )
 
+
     # ==================================================
-# EXTRACT PATIENT NAME
-# ==================================================
+    # EXTRACT PATIENT NAME
+    # ==================================================
 
     extracted_name = extract_patient_name(message)
 
@@ -1496,10 +1391,10 @@ def handle_local_appointment_request(
         state["patient_name"] = extracted_name
 
         logger.info(
-           "LOCAL PATIENT NAME: %s",
+            "LOCAL PATIENT NAME: %s",
             extracted_name
         )
-  
+
 
     # ==================================================
     # CANCELLATION
@@ -1509,11 +1404,93 @@ def handle_local_appointment_request(
         "cancel my appointment" in normalized
         or "cancel an appointment" in normalized
         or normalized == "cancel appointment"
+        or "cancel my booking" in normalized
+        or "cancel booking" in normalized
+        or normalized == "cancellation"
     ):
 
+        appointment_id = (
+            state.get("appointment_id")
+        )
+
+        # --------------------------------------------------
+        # If the current booking flow has no appointment,
+        # use the most recently completed booking.
+        # --------------------------------------------------
+
+        if appointment_id is None:
+
+            previous_booking = completed_bookings.get(
+                conversation_id
+            )
+
+            if previous_booking:
+
+                appointment_id = previous_booking.get(
+                    "appointment_id"
+                )
+
+
+        if appointment_id is None:
+
+            return (
+                "I can help you cancel your appointment. "
+                "Please provide the appointment details."
+            )
+
+
+        result = cancel_appointment(
+            appointment_id=appointment_id
+        )
+
+        logger.info(
+            "LOCAL CANCELLATION RESULT: %s",
+            result
+        )
+
+
+        if result.get("success"):
+
+            available_slots.setdefault(
+                conversation_id,
+                set()
+            ).add(
+                appointment_id
+            )
+
+
+            cancelled_date = result.get(
+                "date"
+            )
+
+            cancelled_time = result.get(
+                "time"
+            )
+
+
+            completed_bookings.pop(
+                conversation_id,
+                None
+            )
+
+
+            clear_booking_state(
+                conversation_id
+            )
+
+
+            return (
+                f"Your appointment for "
+                f"{format_spoken_date(cancelled_date)} "
+                f"at "
+                f"{format_spoken_time(cancelled_time)} "
+                f"has been cancelled."
+            )
+
+
         return (
-            "Appointment cancellation is not currently "
-            "supported by CareFlow AI."
+            "I couldn't cancel that appointment. "
+            "Please try again."
         )
 
 
@@ -1529,13 +1506,9 @@ def handle_local_appointment_request(
 
         state["date"] = resolved_date
 
-        # Changing the date invalidates the previous
-        # selected appointment.
-
         state["appointment_id"] = None
         state["time"] = None
         state["confirmed"] = False
-        
 
 
     # ==================================================
@@ -1557,7 +1530,6 @@ def handle_local_appointment_request(
             "i want an appointment",
             "i want to book",
             "i need an appointment",
-            
         ]
     )
 
@@ -1573,7 +1545,8 @@ def handle_local_appointment_request(
             )
 
         if state["patient_name"]:
-            return(
+
+            return (
                 f"What time would you prefer for "
                 f"your appointment, {state['patient_name']}"
             )
@@ -1583,7 +1556,11 @@ def handle_local_appointment_request(
             "appointment?"
         )
 
-    resolved_time = resolve_time(message)
+
+    resolved_time = resolve_time(
+        message
+    )
+
 
     availability_request = any(
         phrase in normalized
@@ -1601,6 +1578,7 @@ def handle_local_appointment_request(
             "available slots",
         ]
     )
+
 
     date_availability_request = any(
         phrase in normalized
@@ -1624,11 +1602,6 @@ def handle_local_appointment_request(
     # ==================================================
     # DATE WAS PROVIDED WITHOUT A BOOKING REQUEST OR TIME
     # ==================================================
-    #
-    # If the user changes the date conversationally, such as
-    # "what about September 19th?", check that date directly
-    # instead of sending the question to the LLM.
-    #
 
     if (
         resolved_date
@@ -1706,6 +1679,10 @@ def handle_local_appointment_request(
         for phrase in [
             "what times are available",
             "what time is available",
+            "whats the time available",
+            "what's the time available",
+            "whats available",
+            "what's available",
             "what times do you have",
             "available times",
             "availability",
@@ -1832,8 +1809,6 @@ def handle_local_appointment_request(
         ]
 
 
-        # Store every verified slot.
-
         available_slots[
             conversation_id
         ] = {
@@ -1877,9 +1852,6 @@ def handle_local_appointment_request(
 
 
         if not result.get("available"):
-
-            # If the exact time doesn't exist,
-            # give the actual available options.
 
             available = get_available_appointments(
                 date=state["date"]
@@ -1960,110 +1932,134 @@ def handle_local_appointment_request(
     # CONFIRMATION
     # ==================================================
 
-    # ==================================================
-# CONFIRMATION
-# ==================================================
-
     if is_confirmation(message):
 
-       if (
-        state["date"]
-        and state["appointment_id"] is not None
-        and state["time"]
-    ):
+        if (
+            state["date"]
+            and state["appointment_id"] is not None
+            and state["time"]
+        ):
 
-        state["confirmed"] = True
+            state["confirmed"] = True
 
-        # --------------------------------------------------
-        # NAME ALREADY KNOWN -> BOOK IMMEDIATELY
-        # --------------------------------------------------
 
-        if state["patient_name"]:
+            # --------------------------------------------------
+            # NAME ALREADY KNOWN -> BOOK IMMEDIATELY
+            # --------------------------------------------------
 
-            appointment_id = (
-                state["appointment_id"]
-            )
+            if state["patient_name"]:
 
-            patient_name = (
-                state["patient_name"].strip()
-            )
-
-            # Final backend verification.
-            if (
-                appointment_id is None
-                or appointment_id
-                not in available_slots.get(
-                    conversation_id,
-                    set()
+                appointment_id = (
+                    state["appointment_id"]
                 )
-            ):
+
+                patient_name = (
+                    state["patient_name"].strip()
+                )
+
+
+                if (
+                    appointment_id is None
+                    or appointment_id
+                    not in available_slots.get(
+                        conversation_id,
+                        set()
+                    )
+                ):
+
+                    clear_booking_state(
+                        conversation_id
+                    )
+
+                    return (
+                        "That appointment slot is no longer "
+                        "available. Please choose another time."
+                    )
+
+
+                result = book_appointment(
+                    appointment_id=appointment_id,
+                    patient_name=patient_name
+                )
+
+                logger.info(
+                    "LOCAL BOOKING RESULT: %s",
+                    result
+                )
+
+
+                if result.get("success"):
+
+                    available_slots[
+                        conversation_id
+                    ].discard(
+                        appointment_id
+                    )
+
+
+                    booked_date = (
+                        result.get("date")
+                        or state["date"]
+                    )
+
+                    booked_time = (
+                        result.get("time")
+                        or state["time"]
+                    )
+
+
+                    # --------------------------------------------------
+                    # REMEMBER MOST RECENT BOOKING FOR CANCELLATION
+                    # --------------------------------------------------
+
+                    completed_bookings[
+                        conversation_id
+                    ] = {
+                        "appointment_id":
+                            appointment_id,
+
+                        "date":
+                            booked_date,
+
+                        "time":
+                            booked_time,
+
+                        "patient_name":
+                            patient_name,
+                    }
+
+
+                    clear_booking_state(
+                        conversation_id
+                    )
+
+
+                    return (
+                        f"Your appointment for "
+                        f"{format_spoken_date(booked_date)} "
+                        f"at "
+                        f"{format_spoken_time(booked_time)} "
+                        f"has been booked, {patient_name}."
+                    )
+
 
                 clear_booking_state(
                     conversation_id
                 )
 
                 return (
-                    "That appointment slot is no longer "
-                    "available. Please choose another time."
+                    "I couldn't book that appointment because "
+                    "the slot is no longer available."
                 )
 
-            # Actual database booking.
-            result = book_appointment(
-                appointment_id=appointment_id,
-                patient_name=patient_name
-            )
 
-            logger.info(
-                "LOCAL BOOKING RESULT: %s",
-                result
-            )
-
-            if result.get("success"):
-
-                available_slots[
-                    conversation_id
-                ].discard(
-                    appointment_id
-                )
-
-                booked_date = (
-                    result.get("date")
-                    or state["date"]
-                )
-
-                booked_time = (
-                    result.get("time")
-                    or state["time"]
-                )
-
-                clear_booking_state(
-                    conversation_id
-                )
-
-                return (
-                    f"Your appointment for "
-                    f"{format_spoken_date(booked_date)} "
-                    f"at "
-                    f"{format_spoken_time(booked_time)} "
-                    f"has been booked, {patient_name}."
-                )
-
-            clear_booking_state(
-                conversation_id
-            )
+            # --------------------------------------------------
+            # NAME NOT KNOWN -> ASK FOR IT
+            # --------------------------------------------------
 
             return (
-                "I couldn't book that appointment because "
-                "the slot is no longer available."
+                "Absolutely. What is your full name?"
             )
-
-        # --------------------------------------------------
-        # NAME NOT KNOWN -> ASK FOR IT
-        # --------------------------------------------------
-
-        return (
-            "Absolutely. What is your full name?"
-        )
 
 
     # ==================================================
@@ -2147,6 +2143,27 @@ def handle_local_appointment_request(
                 result.get("time")
                 or state["time"]
             )
+
+
+            # --------------------------------------------------
+            # REMEMBER MOST RECENT BOOKING FOR CANCELLATION
+            # --------------------------------------------------
+
+            completed_bookings[
+                conversation_id
+            ] = {
+                "appointment_id":
+                    appointment_id,
+
+                "date":
+                    booked_date,
+
+                "time":
+                    booked_time,
+
+                "patient_name":
+                    patient_name,
+            }
 
 
             clear_booking_state(
@@ -2349,11 +2366,6 @@ def chat(
         # ==================================================
         # LOCAL FAQ ROUTER
         # ==================================================
-        #
-        # Common clinic FAQ questions are handled locally.
-        # This avoids unnecessary LLM calls and therefore
-        # avoids Groq tokens/rate limits.
-        #
 
         faq_intent = detect_faq_intent(
             request.message
@@ -2403,10 +2415,9 @@ def chat(
                 "before their scheduled appointment."
             ),
 
-            "cancellation": (
-                "Appointment cancellation is not currently "
-                "supported by the CareFlow AI prototype."
-            ),
+            # Cancellation is intentionally handled by the
+            # local appointment router below.
+            "cancellation": None,
 
             "rescheduling": (
                 "Appointment rescheduling is not currently "
@@ -2448,7 +2459,17 @@ def chat(
         )
 
 
-        if faq_answer:
+        # ==================================================
+        # IMPORTANT:
+        # Cancellation must NOT be consumed by the FAQ
+        # fallback. It must continue to the local appointment
+        # router, which has access to the booked appointment.
+        # ==================================================
+
+        if (
+            faq_answer
+            and faq_intent != "cancellation"
+        ):
 
             logger.info(
                 "LOCAL FAQ ANSWER: intent=%s",
@@ -2464,7 +2485,14 @@ def chat(
             }
 
 
-        if faq_intent:
+        # ==================================================
+        # FAQ INTENT WITH NO LOCAL ANSWER
+        # ==================================================
+
+        if (
+            faq_intent
+            and faq_intent != "cancellation"
+        ):
 
             logger.warning(
                 "FAQ intent detected but no "
@@ -2645,10 +2673,6 @@ def chat(
         # ==================================================
         # DIRECT RAG ROUTER
         # ==================================================
-        #
-        # Clinic-specific questions go directly to the
-        # knowledge base instead of consuming Groq tokens.
-        # ==================================================
 
         if looks_like_clinic_question(
             message
@@ -2703,10 +2727,6 @@ def chat(
         # ==================================================
         # LLM FALLBACK
         # ==================================================
-        #
-        # Only genuinely conversational / unknown requests
-        # reach Groq.
-        # ==================================================
 
         date_context = get_date_context(
             message
@@ -2720,9 +2740,6 @@ def chat(
 
             llm_message += date_context
 
-
-        # Replace the just-added user message with the
-        # internally enriched version for the LLM.
 
         conversation[-1] = {
 
@@ -2879,9 +2896,6 @@ def chat(
                         "check_appointment_availability"
                     ):
 
-                        # The backend-owned booking state is authoritative.
-                        # Never let the LLM replace a date already resolved
-                        # from the user's current conversation turn.
                         state = get_booking_state(
                             conversation_id
                         )
@@ -2956,9 +2970,6 @@ def chat(
                         "get_available_appointments"
                     ):
 
-                        # If a date is already owned by the backend
-                        # booking state, use it instead of trusting a
-                        # year inferred by the LLM.
                         state = get_booking_state(
                             conversation_id
                         )
@@ -3036,6 +3047,7 @@ def chat(
                         )
 
                         if isinstance(patient_name, str):
+
                             normalized_name = patient_name.strip()
 
                             name_prefixes = (
@@ -3044,36 +3056,20 @@ def chat(
                                 "my name is ",
                                 "this is ",
                             )
+
                             lowered_name = normalized_name.lower()
 
-                            patient_name = arguments.get(
-                                "patient_name"
-                            )
+                            for prefix in name_prefixes:
 
-                            if isinstance(patient_name, str):
+                                if lowered_name.startswith(prefix):
 
-                                normalized_name = patient_name.strip()
+                                    normalized_name = normalized_name[
+                                        len(prefix):
+                                    ].strip()
 
-                                name_prefixes = (
-                                    "i am ",
-                                    "i'm ",
-                                    "my name is ",
-                                    "this is ",
-                                )
+                                    break
 
-                                lowered_name = normalized_name.lower()
-
-                                for prefix in name_prefixes:
-
-                                    if lowered_name.startswith(prefix):
-
-                                        normalized_name = normalized_name[
-                                            len(prefix):
-                                        ].strip()
-
-                                        break
-
-                                patient_name = normalized_name
+                            patient_name = normalized_name
 
 
                         state = get_booking_state(
@@ -3087,8 +3083,6 @@ def chat(
                             )
                         )
 
-
-                        # Only use backend-verified IDs.
 
                         if appointment_id is None:
 
@@ -3172,6 +3166,23 @@ def chat(
                                 ].discard(
                                     appointment_id
                                 )
+
+
+                                completed_bookings[
+                                    conversation_id
+                                ] = {
+                                    "appointment_id":
+                                        appointment_id,
+
+                                    "date":
+                                        result.get("date"),
+
+                                    "time":
+                                        result.get("time"),
+
+                                    "patient_name":
+                                        patient_name.strip(),
+                                }
 
 
                                 clear_booking_state(
@@ -3331,8 +3342,8 @@ def chat(
                 or ""
             )
 
-            ##never expose raw model tool call markup to the user.
             if "<tool_call>" in response_text:
+
                 logger.warning(
                     "Suppressing raw tool-call output for conversation %s",
                     conversation_id
