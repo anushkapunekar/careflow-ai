@@ -45,6 +45,10 @@ client = Groq(
     timeout=15.0
 )
 
+class LLMUnavailableError(Exception):
+    """Raised when the LLM cannot serve the current request."""
+    pass
+
 
 # ==================================================
 # SYSTEM PROMPT
@@ -66,20 +70,28 @@ APPOINTMENTS:
   actually returned no available slots.
 
 BOOKING:
-- Booking requires a verified appointment ID.
+- Booking requires a verified appointment ID and an explicitly provided patient name.
 - The appointment ID must come from an availability tool.
-- The patient name must be explicitly provided by the user.
-- If the user says "I am <name>", "my name is <name>", or similar,
-  treat only the actual name as the patient name.
-- When confirming a booking, address the patient using only their
-  actual name. For example, if the user says "I am Shawn", say
-  "Your appointment has been booked, Shawn", not "I am Shawn".
-- The user must explicitly confirm before booking.
-- "yes", "sure", "go ahead" and "book it" are confirmations,
-  not patient names.
-- Never call book_appointment without both required values.
-- Never claim a booking succeeded unless the booking tool returned
-  success.
+- Preserve booking information already provided by the user throughout the conversation.
+- Once the user has explicitly provided their name, do not ask for their name again unless the user clearly changes or corrects it.
+- Extract only the actual name from the user's statement.
+- For example:
+  - "My name is Shawn" -> patient_name = "Shawn"
+  - "I'm Shawn" -> patient_name = "Shawn"
+  - "Book it for Shawn" -> patient_name = "Shawn"
+  - "The name is Shawn" -> patient_name = "Shawn"
+  - "told you it's Shawn" -> patient_name = "Shawn"
+- Never use the entire sentence as patient_name.
+- Words such as "yes", "sure", "go ahead", "book it", "that's fine", and "confirm" are confirmations, not patient names.
+- If the user has already provided a name earlier in the conversation, reuse that name.
+- If the user provides a corrected name, use the corrected name instead.
+- Before calling book_appointment, verify that:
+  1. The appointment ID came from a previous availability result.
+  2. The patient name was explicitly provided by the user.
+  3. The user explicitly confirmed the booking.
+- Never call book_appointment using an inferred, invented, placeholder, or assistant-generated name.
+- Never call book_appointment with the user's confirmation phrase as patient_name.
+- Never claim a booking succeeded unless book_appointment returned success.
 - Never expose appointment IDs to the user.
 
 CANCELLATION:
@@ -256,7 +268,7 @@ TOOLS = [
 # MESSAGE COMPACTION
 # ==================================================
 
-MAX_LLM_MESSAGES = 8
+MAX_LLM_MESSAGES = 16
 
 
 def compact_messages(
@@ -372,7 +384,7 @@ def ask_llm(
     # LIMIT TOOL DEFINITIONS
     # --------------------------------------------------
 
-    active_tools = tools or TOOLS
+    active_tools = TOOLS if tools is None else tools
 
 
     # --------------------------------------------------
@@ -399,7 +411,7 @@ def ask_llm(
 
             tool_choice="auto",
 
-            max_tokens=100,
+            max_tokens=80,
 
             temperature=0.2,
 
@@ -412,10 +424,35 @@ def ask_llm(
 
     except RateLimitError as error:
 
+        retry_after = None
+
+        try:
+            response = getattr(
+                error,
+                "response",
+                None
+            )
+
+            headers = getattr(
+                response,
+                "headers",
+                {}
+            )
+
+            retry_after = headers.get(
+                "retry-after"
+            )
+
+        except Exception:
+            retry_after = None    
+
         logger.warning(
-            "Groq rate limit reached: %s",
-            error
+            "LLM_RATE_LIMITED model=%s retry_after=%s",
+            LLM_MODEL,
+            retry_after
         )
+
+        raise
 
 
         # --------------------------------------------------
@@ -467,8 +504,9 @@ def ask_llm(
             retry_after
         )
 
-
-        raise
+        raise LLMUnavailableError(
+            "CareFlow AI is temporarily unavailable."
+        )from error
 
 
     except APIStatusError as error:

@@ -3,10 +3,12 @@ import logging
 import os
 import re
 import time
+import secrets
 from datetime import date, timedelta
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -59,6 +61,29 @@ logging.basicConfig(
 
 logger = logging.getLogger("careflow")
 
+def clean_voice_response(text: str) -> str:
+    if not text:
+        return ""
+
+    text = re.sub(
+        r"<tool_call>.*?</tool_call>",
+        "",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    text = re.sub(
+        r"<function=.*?</function>",
+        "",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    if "<parameter_" in text:
+        return ""
+
+    return text.strip()
+
 
 # ==================================================
 # APPLICATION
@@ -86,7 +111,7 @@ async def log_request_latency(request, call_next):
     if request.url.path == "/api/chat":
 
         logger.info(
-            "CHAT LATENCY: method=%s path=%s status=%s latency_ms=%.2f",
+            "CHAT_REQUEST method=%s path=%s status=%s latency_ms=%.2f",
             request.method,
             request.url.path,
             response.status_code,
@@ -178,7 +203,7 @@ available_slots: dict[str, set[int]] = {}
 
 MAX_CONVERSATIONS = 500
 
-MAX_MESSAGES_PER_CONVERSATION = 10
+MAX_MESSAGES_PER_CONVERSATION = 20
 
 MAX_TRACKED_SLOTS_PER_CONVERSATION = 50
 
@@ -392,6 +417,89 @@ def resolve_date(
 
 
     # --------------------------------------------------
+    # DAY + MONTH
+    #
+    # 15 September
+    # 15th September
+    # 15 September 2026
+    #
+    # Voice users naturally say dates this way. Resolve
+    # yearless dates against the backend's current year
+    # instead of allowing the LLM to infer a year.
+    # --------------------------------------------------
+
+    day_month_pattern = (
+        r"\b(\d{1,2})(?:st|nd|rd|th)?\s+"
+        r"(" + "|".join(MONTHS.keys()) + r")"
+        r"(?:\s*,?\s*(\d{4}))?"
+        r"\b"
+    )
+
+    day_month_match = re.search(
+        day_month_pattern,
+        normalized,
+    )
+
+    if day_month_match:
+
+        day_number = int(
+            day_month_match.group(1)
+        )
+
+        month_name = day_month_match.group(2)
+
+        year_text = day_month_match.group(3)
+
+        month_number = MONTHS[
+            month_name
+        ]
+
+        if year_text:
+
+            year_number = int(
+                year_text
+            )
+
+        else:
+
+            # The application date is authoritative.
+            # For a yearless date, use the current year.
+            year_number = today.year
+
+            try:
+
+                candidate = date(
+                    year_number,
+                    month_number,
+                    day_number,
+                )
+
+                # If the date has already passed this year,
+                # resolve it to the next occurrence.
+                if candidate < today:
+
+                    year_number += 1
+
+            except ValueError:
+
+                return None
+
+        try:
+
+            resolved = date(
+                year_number,
+                month_number,
+                day_number,
+            )
+
+            return resolved.isoformat()
+
+        except ValueError:
+
+            return None
+
+
+    # --------------------------------------------------
     # EXPLICIT MONTH + DAY
     #
     # September 15
@@ -521,7 +629,8 @@ def get_date_context(
         f"The user's resolved appointment date is "
         f"{resolved_date}.\n"
         "Use this exact date when calling "
-        "appointment tools."
+        "appointment tools. Never infer or substitute "
+        "a different year for this date."
     )
 
 
@@ -982,6 +1091,35 @@ def looks_like_name(
     return True
 
 
+def extract_patient_name(message: str) -> str | None:
+
+    patterns = [
+        r"\bmy name is\s+([A-Za-z][A-Za-z'\-]*)",
+        r"\bi am\s+([A-Za-z][A-Za-z'\-]*)",
+        r"\bi'm\s+([A-Za-z][A-Za-z'\-]*)",
+        r"\bthe name is\s+([A-Za-z][A-Za-z'\-]*)",
+        r"\bname is\s+([A-Za-z][A-Za-z'\-]*)",
+        r"\bon the name of\s+([A-Za-z][A-Za-z'\-]*)",
+    ]
+
+    for pattern in patterns:
+
+        match = re.search(
+            pattern,
+            message,
+            re.IGNORECASE
+        )
+
+        if not match:
+            continue
+
+        candidate = match.group(1).strip()
+
+        if looks_like_name(candidate):
+            return candidate
+
+    return None
+
 # ==================================================
 # EMERGENCY DETECTION
 # ==================================================
@@ -1232,7 +1370,10 @@ def verify_admin_key(
             detail="Unauthorized",
         )
 
-    if x_admin_key != ADMIN_API_KEY:
+    if not secrets.compare_digest(
+        x_admin_key,
+        ADMIN_API_KEY
+    ):
 
         raise HTTPException(
             status_code=401,
@@ -1249,6 +1390,19 @@ def health():
 
     return {
         "status": "healthy"
+    }
+
+@app.get("/api/ready")
+def readiness():
+
+    return {
+        "status": "ready",
+        "service": "careflow-ai",
+        "checks": {
+            "database": "ready",
+            "agent": "ready",
+            "voice_api": "ready"
+        }
     }
 
 
@@ -1331,6 +1485,21 @@ def handle_local_appointment_request(
         conversation_id
     )
 
+    # ==================================================
+# EXTRACT PATIENT NAME
+# ==================================================
+
+    extracted_name = extract_patient_name(message)
+
+    if extracted_name:
+
+        state["patient_name"] = extracted_name
+
+        logger.info(
+           "LOCAL PATIENT NAME: %s",
+            extracted_name
+        )
+  
 
     # ==================================================
     # CANCELLATION
@@ -1366,7 +1535,7 @@ def handle_local_appointment_request(
         state["appointment_id"] = None
         state["time"] = None
         state["confirmed"] = False
-        state["patient_name"] = None
+        
 
 
     # ==================================================
@@ -1378,13 +1547,17 @@ def handle_local_appointment_request(
         for phrase in [
             "book an appointment",
             "book appointment",
+            "book my appointment",
+            "book me",
+            "books my appointment",
             "schedule an appointment",
             "schedule appointment",
+            "schedule me",
             "make an appointment",
             "i want an appointment",
+            "i want to book",
             "i need an appointment",
-            "book me",
-            "schedule me",
+            
         ]
     )
 
@@ -1397,6 +1570,12 @@ def handle_local_appointment_request(
                 "I'd be happy to help you schedule "
                 "an appointment. What date works best "
                 "for you?"
+            )
+
+        if state["patient_name"]:
+            return(
+                f"What time would you prefer for "
+                f"your appointment, {state['patient_name']}"
             )
 
         return (
@@ -1760,8 +1939,6 @@ def handle_local_appointment_request(
         )
 
         state["confirmed"] = False
-        state["patient_name"] = None
-
 
         available_slots[
             conversation_id
@@ -1783,21 +1960,110 @@ def handle_local_appointment_request(
     # CONFIRMATION
     # ==================================================
 
+    # ==================================================
+# CONFIRMATION
+# ==================================================
+
     if is_confirmation(message):
 
-        if (
-            state["date"]
-            and state["appointment_id"] is not None
-            and state["time"]
-        ):
+       if (
+        state["date"]
+        and state["appointment_id"] is not None
+        and state["time"]
+    ):
 
-            state["confirmed"] = True
+        state["confirmed"] = True
 
-            if not state["patient_name"]:
+        # --------------------------------------------------
+        # NAME ALREADY KNOWN -> BOOK IMMEDIATELY
+        # --------------------------------------------------
+
+        if state["patient_name"]:
+
+            appointment_id = (
+                state["appointment_id"]
+            )
+
+            patient_name = (
+                state["patient_name"].strip()
+            )
+
+            # Final backend verification.
+            if (
+                appointment_id is None
+                or appointment_id
+                not in available_slots.get(
+                    conversation_id,
+                    set()
+                )
+            ):
+
+                clear_booking_state(
+                    conversation_id
+                )
 
                 return (
-                    "Absolutely. What is your full name?"
+                    "That appointment slot is no longer "
+                    "available. Please choose another time."
                 )
+
+            # Actual database booking.
+            result = book_appointment(
+                appointment_id=appointment_id,
+                patient_name=patient_name
+            )
+
+            logger.info(
+                "LOCAL BOOKING RESULT: %s",
+                result
+            )
+
+            if result.get("success"):
+
+                available_slots[
+                    conversation_id
+                ].discard(
+                    appointment_id
+                )
+
+                booked_date = (
+                    result.get("date")
+                    or state["date"]
+                )
+
+                booked_time = (
+                    result.get("time")
+                    or state["time"]
+                )
+
+                clear_booking_state(
+                    conversation_id
+                )
+
+                return (
+                    f"Your appointment for "
+                    f"{format_spoken_date(booked_date)} "
+                    f"at "
+                    f"{format_spoken_time(booked_time)} "
+                    f"has been booked, {patient_name}."
+                )
+
+            clear_booking_state(
+                conversation_id
+            )
+
+            return (
+                "I couldn't book that appointment because "
+                "the slot is no longer available."
+            )
+
+        # --------------------------------------------------
+        # NAME NOT KNOWN -> ASK FOR IT
+        # --------------------------------------------------
+
+        return (
+            "Absolutely. What is your full name?"
+        )
 
 
     # ==================================================
@@ -2613,9 +2879,21 @@ def chat(
                         "check_appointment_availability"
                     ):
 
+                        # The backend-owned booking state is authoritative.
+                        # Never let the LLM replace a date already resolved
+                        # from the user's current conversation turn.
+                        state = get_booking_state(
+                            conversation_id
+                        )
+
+                        tool_date = (
+                            state.get("date")
+                            or arguments["date"]
+                        )
+
                         result = (
                             check_appointment_availability(
-                                date=arguments["date"],
+                                date=tool_date,
                                 preferred_time=arguments[
                                     "preferred_time"
                                 ]
@@ -2647,6 +2925,13 @@ def chat(
                                     conversation_id
                                 )
 
+                                has_active_booking_flow = (
+                                    state["date"] is not None
+                                    or state["appointment_id"] is not None
+                                    or state["confirmed"]
+                                    or state["patient_name"] is not None
+                                )
+
 
                                 state["date"] = (
                                     result.get("date")
@@ -2671,9 +2956,21 @@ def chat(
                         "get_available_appointments"
                     ):
 
+                        # If a date is already owned by the backend
+                        # booking state, use it instead of trusting a
+                        # year inferred by the LLM.
+                        state = get_booking_state(
+                            conversation_id
+                        )
+
+                        tool_date = (
+                            state.get("date")
+                            or arguments["date"]
+                        )
+
                         result = (
                             get_available_appointments(
-                                date=arguments["date"]
+                                date=tool_date
                             )
                         )
 
@@ -2717,7 +3014,7 @@ def chat(
                             )
 
                             state["date"] = (
-                                arguments["date"]
+                                tool_date
                             )
 
 
@@ -2745,18 +3042,36 @@ def chat(
                                 "i am ",
                                 "i'm ",
                                 "my name is ",
-                                "this is  ",
+                                "this is ",
                             )
                             lowered_name = normalized_name.lower()
 
-                            for prefix in name_prefixes:
-                                if lowered_name.startswith(prefix):
+                            patient_name = arguments.get(
+                                "patient_name"
+                            )
 
-                                    normalized_name = normalized_name[
-                                        len(prefix):
-                                    ].strip()
+                            if isinstance(patient_name, str):
 
-                                    break
+                                normalized_name = patient_name.strip()
+
+                                name_prefixes = (
+                                    "i am ",
+                                    "i'm ",
+                                    "my name is ",
+                                    "this is ",
+                                )
+
+                                lowered_name = normalized_name.lower()
+
+                                for prefix in name_prefixes:
+
+                                    if lowered_name.startswith(prefix):
+
+                                        normalized_name = normalized_name[
+                                            len(prefix):
+                                        ].strip()
+
+                                        break
 
                                 patient_name = normalized_name
 
@@ -2989,7 +3304,7 @@ def chat(
                 )
 
 
-                response_text = (
+                response_text = clean_voice_response(
                     final_response.content
                     or ""
                 )
@@ -3015,6 +3330,18 @@ def chat(
                 response.content
                 or ""
             )
+
+            ##never expose raw model tool call markup to the user.
+            if "<tool_call>" in response_text:
+                logger.warning(
+                    "Suppressing raw tool-call output for conversation %s",
+                    conversation_id
+                )
+
+                response_text = (
+                    "I'm sorry, I couldn't complete that booking"
+                    "right now. Please try again."
+                )
 
 
         # ==================================================

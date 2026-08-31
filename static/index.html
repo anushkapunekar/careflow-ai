@@ -1008,133 +1008,56 @@ const recognition =
 
 
 /* =========================================================
-   BARGE-IN RECOGNITION
-   Detects when the user starts speaking while CareFlow
-   is speaking.
+   CONTROLLED RECOGNITION RESTART
 ========================================================= */
 
-const bargeInRecognition =
-    SpeechRecognition
-        ? new SpeechRecognition()
-        : null;
+let recognitionRestartTimer = null;
 
 
-let bargeInListening = false;
+function startNormalRecognition() {
 
+    if (
+        !recognition ||
+        !voiceSessionActive ||
+        isListening ||
+        isSpeaking ||
+        isProcessing
+    ) {
+        return;
+    }
 
-if (bargeInRecognition) {
+    if (recognitionRestartTimer !== null) {
+        clearTimeout(recognitionRestartTimer);
+        recognitionRestartTimer = null;
+    }
 
-    bargeInRecognition.lang =
-        "en-US";
+    recognitionRestartTimer = setTimeout(() => {
 
-    bargeInRecognition.interimResults =
-        true;
+        recognitionRestartTimer = null;
 
-    bargeInRecognition.continuous =
-        false;
+        if (
+            !voiceSessionActive ||
+            isListening ||
+            isSpeaking ||
+            isProcessing
+        ) {
+            return;
+        }
 
+        try {
+            recognition.start();
 
-    bargeInRecognition.onstart =
-        () => {
-
-            bargeInListening =
-                true;
-        };
-
-
-    bargeInRecognition.onresult =
-        (event) => {
-
-            if (
-                !isSpeaking ||
-                !voiceSessionActive
-            ) {
-                return;
-            }
-
-
-            const transcript =
-                event.results[0][0]
-                    .transcript
-                    .trim();
-
-
-            if (!transcript) {
-                return;
-            }
-
-
-            /*
-             * User has started speaking while
-             * CareFlow is speaking.
-             *
-             * Stop the current speech immediately.
-             */
-
-            stopSpeech();
-
-
-            try {
-
-                bargeInRecognition.stop();
-
-            } catch (error) {
-
-                console.debug(
-                    "Barge-in recognition stop skipped:",
-                    error
-                );
-            }
-
-
-            /*
-             * Start the normal recognition flow
-             * so the user's complete utterance can
-             * be captured.
-             */
-
-            if (
-                recognition &&
-                !isListening &&
-                !isProcessing
-            ) {
-
-                try {
-
-                    recognition.start();
-
-                } catch (error) {
-
-                    console.debug(
-                        "Normal recognition start skipped:",
-                        error
-                    );
-                }
-            }
-        };
-
-
-    bargeInRecognition.onerror =
-        (event) => {
+        } catch (error) {
 
             console.debug(
-                "Barge-in recognition:",
-                event.error
+                "Recognition start skipped:",
+                error
             );
+        }
 
-            bargeInListening =
-                false;
-        };
-
-
-    bargeInRecognition.onend =
-        () => {
-
-            bargeInListening =
-                false;
-        };
+    }, 150);
 }
-        
+
 
 if (!recognition) {
 
@@ -1153,10 +1076,10 @@ if (recognition) {
         "en-US";
 
     recognition.interimResults =
-        false;
+        true;
 
     recognition.continuous =
-        false;
+        true;
 
 
     /* =====================================================
@@ -1169,23 +1092,18 @@ if (recognition) {
             isListening =
                 true;
 
-            if (isSpeaking){
-                interruptionDetected = 
-                   true;
-
-                stopSpeech();   
-            }    
 
             setState(
-            "Listening...",
-            "Speak naturally. I'm listening.",
-            true
+                "Listening...",
+                "Speak naturally. I'm listening.",
+                true
             );
-            
+
 
             setConnection(
                 "Listening"
             );
+
 
             startButton.disabled =
                 true;
@@ -1200,77 +1118,174 @@ if (recognition) {
     ===================================================== */
 
     recognition.onresult =
-        async (event) => {
+    async (event) => {
 
-            if (isProcessing) {
-                return;
-            }
+        if (isProcessing) {
+            return;
+        }
 
-            voiceTurnStartTime = 
-            performance.now();
+
+        let transcript = "";
+
+        for (
+            let i = event.resultIndex;
+            i < event.results.length;
+            i++
+        ) {
+
+            transcript +=
+                event.results[i][0].transcript;
+        }
+
+
+        transcript =
+            transcript.trim();
+
+
+        if (!transcript) {
+            return;
+        }
+
+
+        /*
+         * BARGE-IN:
+         *
+         * If CareFlow is currently speaking and the
+         * recognition engine receives user speech,
+         * stop ONLY the TTS.
+         *
+         * The SAME recognition instance remains active
+         * so it can continue capturing the complete
+         * user utterance.
+         */
+
+        if (isSpeaking) {
 
             console.log(
-                "USER SPEECH CAPTURED"
-            );
-
-            const transcript =
-                event.results[0][0]
-                    .transcript
-                    .trim();
-
-            if (!transcript) {
-                return;
-            }
-
-            isProcessing =
-                true;
-
-            isListening =
-                false;
-
-            addMessage(
-                "You",
-                transcript,
-                "user"
-            );
-
-            setState(
-                "Thinking...",
-                "CareFlow is processing your request."
-            );
-
-            setConnection(
-                "Processing"
-            );
-
-            await sendToAgent(
+                "🛑 BARGE-IN DETECTED:",
                 transcript
             );
 
-            isProcessing =
+
+            speechGeneration++;
+
+
+            window.speechSynthesis.cancel();
+
+
+            if (
+                speechPauseTimer !== null
+            ) {
+
+                clearTimeout(
+                    speechPauseTimer
+                );
+
+
+                speechPauseTimer =
+                    null;
+            }
+
+
+            isSpeaking =
                 false;
 
 
-            if (!isSpeaking) {
+            setState(
+                "Listening...",
+                "I heard you. Go ahead.",
+                true
+            );
 
-                if (voiceSessionActive) {
 
-                    startButton.disabled =
-                        true;
+            setConnection(
+                "Listening"
+            );
+        }
 
-                    stopButton.disabled =
-                        false;
 
-                } else {
+        /*
+         * Ignore interim recognition results.
+         *
+         * We only send the user's utterance once the
+         * browser marks the result as FINAL.
+         */
 
-                    startButton.disabled =
-                        false;
+        const latestResult =
+            event.results[
+                event.results.length - 1
+            ];
 
-                    stopButton.disabled =
-                        true;
-                }
+
+        if (!latestResult.isFinal) {
+            return;
+        }
+
+
+        voiceTurnStartTime =
+            performance.now();
+
+
+        console.log(
+            "🎤 USER SPEECH CAPTURED:",
+            transcript
+        );
+
+
+        isProcessing =
+            true;
+
+        isListening =
+            false;
+
+
+        addMessage(
+            "You",
+            transcript,
+            "user"
+        );
+
+
+        setState(
+            "Thinking...",
+            "CareFlow is processing your request."
+        );
+
+
+        setConnection(
+            "Processing"
+        );
+
+
+        await sendToAgent(
+            transcript
+        );
+
+
+        isProcessing =
+            false;
+
+
+        if (!isSpeaking) {
+
+            if (voiceSessionActive) {
+
+                startButton.disabled =
+                    true;
+
+                stopButton.disabled =
+                    false;
+
+            } else {
+
+                startButton.disabled =
+                    false;
+
+                stopButton.disabled =
+                    true;
             }
-        };
+        }
+    };
 
 
     /* =====================================================
@@ -1278,44 +1293,91 @@ if (recognition) {
     ===================================================== */
 
     recognition.onerror =
-        (event) => {
+    (event) => {
 
-            console.error(
-                "Speech recognition error:",
-                event.error
-            );
+        console.warn(
+            "Speech recognition error:",
+            event.error
+        );
 
-            isListening =
-                false;
 
-            if (
-                event.error ===
-                "aborted"
-            ) {
-                return;
-            }
+        isListening = false;
 
-            setState(
-                "Couldn't hear that",
-                "You can try again."
-            );
 
-            setConnection(
-                "Ready"
-            );
+        /*
+         * These are normal browser recognition
+         * lifecycle events and should not kill
+         * the voice session.
+         */
+
+        if (
+            event.error === "aborted" ||
+            event.error === "no-speech"
+        ) {
 
             if (
+                voiceSessionActive &&
                 !isSpeaking &&
                 !isProcessing
             ) {
 
-                startButton.disabled =
-                    false;
-
-                stopButton.disabled =
-                    !voiceSessionActive;
+                startNormalRecognition();
             }
-        };
+
+            return;
+        }
+
+
+        if (
+            event.error === "not-allowed" ||
+            event.error === "service-not-allowed"
+        ) {
+
+            voiceSessionActive = false;
+
+
+            setState(
+                "Microphone unavailable",
+                "Please allow microphone access."
+            );
+
+
+            setConnection(
+                "Microphone issue"
+            );
+
+
+            startButton.disabled =
+                false;
+
+            stopButton.disabled =
+                true;
+
+
+            return;
+        }
+
+
+        setState(
+            "Couldn't hear that",
+            "You can try again."
+        );
+
+
+        setConnection(
+            "Ready"
+        );
+
+
+        if (
+            voiceSessionActive &&
+            !isSpeaking &&
+            !isProcessing
+        ) {
+
+            startNormalRecognition();
+        }
+    };
 
 
     /* =====================================================
@@ -1328,32 +1390,106 @@ if (recognition) {
             isListening =
                 false;
 
+
+            console.log(
+                "🎤 NORMAL RECOGNITION ENDED",
+                {
+                    voiceSessionActive,
+                    isSpeaking,
+                    isProcessing
+                }
+            );
+
+
+            /*
+             * If CareFlow is processing a completed
+             * user request, do NOT restart recognition.
+             */
+
             if (
-                isProcessing ||
-                isSpeaking
+                isProcessing
             ) {
 
                 startButton.disabled =
                     true;
 
-            } else if (
-                voiceSessionActive
-            ) {
+                stopButton.disabled =
+                    !voiceSessionActive;
 
-                startButton.disabled =
-                    true;
-
-            } else {
-
-                startButton.disabled =
-                    false;
+                return;
             }
 
-            stopButton.disabled =
-                !(
-                    isSpeaking ||
-                    voiceSessionActive
+
+            /*
+             * Browser speech recognition can end unexpectedly
+             * even when continuous mode is enabled.
+             *
+             * If AI is speaking, recognition may have ended
+             * because the browser interrupted the recognition
+             * session. In that case, allow the existing
+             * restart mechanism to restore listening only
+             * after speech has stopped.
+             */
+
+            if (voiceSessionActive) {
+
+                if (isSpeaking) {
+
+                    startButton.disabled =
+                        true;
+
+                    stopButton.disabled =
+                        false;
+
+                    return;
+                }
+
+
+                startButton.disabled =
+                    true;
+
+                stopButton.disabled =
+                    false;
+
+
+                setState(
+                    "Listening...",
+                    "Speak naturally. I'm listening.",
+                    true
                 );
+
+
+                setConnection(
+                    "Listening"
+                );
+
+
+                startNormalRecognition();
+
+                return;
+            }
+
+
+            /*
+             * User pressed Stop.
+             */
+
+            startButton.disabled =
+                false;
+
+            stopButton.disabled =
+                true;
+
+
+            setState(
+                "Ready to help",
+                "Press Start Talking to continue"
+            );
+
+
+            setConnection(
+                "System ready"
+            );
         };
 }
 
@@ -1370,20 +1506,25 @@ startButton.addEventListener(
             return;
         }
 
+
         voiceSessionActive =
             true;
+
 
         if (isProcessing) {
             return;
         }
 
+
         if (isSpeaking) {
             stopSpeech();
         }
 
+
         if (isListening) {
             return;
         }
+
 
         try {
 
@@ -1395,6 +1536,28 @@ startButton.addEventListener(
                 "Recognition start skipped:",
                 error
             );
+
+
+            isListening =
+                false;
+
+
+            setState(
+                "Microphone unavailable",
+                "Please check your microphone permission and try again."
+            );
+
+
+            setConnection(
+                "Microphone issue"
+            );
+
+
+            startButton.disabled =
+                false;
+
+            stopButton.disabled =
+                !voiceSessionActive;
         }
     }
 );
@@ -1411,6 +1574,7 @@ stopButton.addEventListener(
         voiceSessionActive =
             false;
 
+
         if (
             recognition &&
             isListening
@@ -1422,7 +1586,9 @@ stopButton.addEventListener(
                 false;
         }
 
+
         stopSpeech();
+
 
         startButton.disabled =
             false;
@@ -1430,10 +1596,12 @@ stopButton.addEventListener(
         stopButton.disabled =
             true;
 
+
         setState(
             "Ready to help",
             "Press Start Talking to continue"
         );
+
 
         setConnection(
             "System ready"
@@ -1484,8 +1652,9 @@ async function sendToAgent(
 
     try {
 
-        voiceApiStartTime = 
-           performance.now();
+        voiceApiStartTime =
+            performance.now();
+
 
         const response =
             await fetch(
@@ -1521,13 +1690,15 @@ async function sendToAgent(
         const data =
             await response.json();
 
+
         const apiLatency =
             performance.now() -
             voiceApiStartTime;
 
+
         console.log(
-           `⚡ API LATENCY: ${apiLatency.toFixed(0)} ms`
-        );    
+            `⚡ API LATENCY: ${apiLatency.toFixed(0)} ms`
+        );
 
 
         const reply =
@@ -1561,19 +1732,24 @@ async function sendToAgent(
             error
         );
 
+
         setState(
             "Connection issue",
             "I couldn't reach CareFlow AI. Please try again."
         );
 
+
         setConnection(
             "Connection issue"
         );
 
+
         stopSpeech();
+
 
         isProcessing =
             false;
+
 
         startButton.disabled =
             false;
@@ -1604,6 +1780,7 @@ function addMessage(
             "div"
         );
 
+
     message.className =
         "message " +
         className;
@@ -1614,6 +1791,7 @@ function addMessage(
             "div"
         );
 
+
     inner.className =
         "message-inner";
 
@@ -1623,8 +1801,10 @@ function addMessage(
             "div"
         );
 
+
     label.className =
         "msg-label";
+
 
     label.textContent =
         sender;
@@ -1635,8 +1815,10 @@ function addMessage(
             "div"
         );
 
+
     bubble.className =
         "bubble";
+
 
     bubble.textContent =
         text;
@@ -1646,13 +1828,16 @@ function addMessage(
         label
     );
 
+
     inner.appendChild(
         bubble
     );
 
+
     message.appendChild(
         inner
     );
+
 
     conversation.appendChild(
         message
@@ -1673,6 +1858,7 @@ function loadVoice() {
     const voices =
         window.speechSynthesis
             .getVoices();
+
 
     if (!voices.length) {
         return;
@@ -1739,6 +1925,7 @@ function loadVoice() {
 
 window.speechSynthesis.onvoiceschanged =
     loadVoice;
+
 
 loadVoice();
 
@@ -1818,6 +2005,7 @@ function cleanTextForSpeech(
                         Number(month) - 1,
                         Number(day)
                     );
+
 
                 return parsedDate
                     .toLocaleDateString(
@@ -1956,6 +2144,7 @@ function stopSpeech() {
 
     speechGeneration++;
 
+
     window.speechSynthesis.cancel();
 
 
@@ -1967,43 +2156,25 @@ function stopSpeech() {
             speechPauseTimer
         );
 
+
         speechPauseTimer =
             null;
     }
 
 
+    /*
+     * IMPORTANT:
+     * Stop ONLY the TTS.
+     *
+     * Do NOT stop SpeechRecognition here.
+     * The same recognition instance must remain
+     * available to capture a barge-in utterance.
+     */
+
     isSpeaking =
         false;
 }
 
-/* =========================================================
-   START BARGE-IN DETECTION
-========================================================= */
-
-function startBargeInDetection() {
-
-    if (
-        !bargeInRecognition ||
-        bargeInListening ||
-        !isSpeaking ||
-        !voiceSessionActive
-    ) {
-        return;
-    }
-
-
-    try {
-
-        bargeInRecognition.start();
-
-    } catch (error) {
-
-        console.debug(
-            "Barge-in recognition start skipped:",
-            error
-        );
-    }
-}
 
 /* =========================================================
    SPEAK
@@ -2037,6 +2208,7 @@ function speak(
 
     startButton.disabled =
         true;
+
 
     stopButton.disabled =
         false;
@@ -2083,6 +2255,23 @@ function speak(
         1.0;
 
 
+    utterance.onstart =
+        () => {
+
+            if (
+                myGeneration !==
+                speechGeneration
+            ) {
+                return;
+            }
+
+
+            console.log(
+                "🔊 SPEECH STARTED"
+            );
+        };
+
+
     utterance.onend =
         () => {
 
@@ -2105,17 +2294,21 @@ function speak(
                 startButton.disabled =
                     false;
 
+
                 stopButton.disabled =
                     true;
+
 
                 setState(
                     "Ready to help",
                     "Press Start Talking to continue"
                 );
 
+
                 setConnection(
                     "System ready"
                 );
+
 
                 return;
             }
@@ -2127,6 +2320,7 @@ function speak(
                     "Thinking...",
                     "CareFlow is processing your request."
                 );
+
 
                 return;
             }
@@ -2147,36 +2341,12 @@ function speak(
             startButton.disabled =
                 true;
 
+
             stopButton.disabled =
                 false;
 
 
-            setTimeout(
-                () => {
-
-                    if (
-                        voiceSessionActive &&
-                        !isListening &&
-                        !isSpeaking &&
-                        !isProcessing
-                    ) {
-
-                        try {
-
-                            recognition.start();
-
-                        } catch (error) {
-
-                            console.debug(
-                                "Recognition restart skipped:",
-                                error
-                            );
-                        }
-                    }
-
-                },
-                250
-            );
+            startNormalRecognition();
         };
 
 
@@ -2223,6 +2393,7 @@ function speak(
             startButton.disabled =
                 false;
 
+
             stopButton.disabled =
                 !voiceSessionActive;
         };
@@ -2232,23 +2403,24 @@ function speak(
         utterance
     );
 
-    const speechStartTime = 
+
+    const speechStartTime =
         performance.now();
+
 
     if (
         voiceTurnStartTime !== null
     ) {
-        const totalVoiceLatency = 
+
+        const totalVoiceLatency =
             speechStartTime -
             voiceTurnStartTime;
 
+
         console.log(
             `🗣️ VOICE RESPONSE START: ${totalVoiceLatency.toFixed(0)} ms`
-
-        );    
+        );
     }
-
-    startBargeInDetection();
 }
 
 
