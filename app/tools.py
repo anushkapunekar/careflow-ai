@@ -137,6 +137,77 @@ def get_available_appointments(
         "slots": slots
     }
 
+#====================================================
+#GET SCHEDULED APPOINTMENTS BY THE PATIENT NAME
+#====================================================
+def get_patient_appointments(
+    patient_name: str
+) -> dict:
+
+    if not isinstance(patient_name, str):
+        return {
+            "success": False,
+            "appointments": [],
+            "message": "A valid patient name is required."
+        }
+
+    patient_name = patient_name.strip()
+
+    if not patient_name:
+        return {
+            "success": False,
+            "appointments": [],
+            "message": "A valid patient name is required."
+        }
+
+    connection = get_connection()
+
+    try:
+
+        appointments = connection.execute(
+            """
+            SELECT
+                id,
+                appointment_date,
+                appointment_time,
+                patient_name,
+                status
+            FROM appointments
+            WHERE patient_name = ?
+            AND status = 'booked'
+            ORDER BY appointment_date, appointment_time
+            """,
+            (patient_name,)
+        ).fetchall()
+
+    finally:
+
+        connection.close()
+
+    if not appointments:
+
+        return {
+            "success": True,
+            "appointments": [],
+            "message": (
+                f"No scheduled appointments were found "
+                f"for {patient_name}."
+            )
+        }
+
+    return {
+        "success": True,
+        "appointments": [
+            {
+                "appointment_id": appointment["id"],
+                "date": appointment["appointment_date"],
+                "time": appointment["appointment_time"],
+                "patient_name": appointment["patient_name"],
+                "status": appointment["status"],
+            }
+            for appointment in appointments
+        ]
+    }
 
 # ==================================================
 # BOOK APPOINTMENT
@@ -430,3 +501,205 @@ def cancel_appointment(
 
     finally:
         connection.close()
+
+  # ==================================================
+# RESCHEDULE APPOINTMENT
+# ==================================================
+
+def reschedule_appointment(
+    appointment_id: int,
+    new_appointment_id: int
+) -> dict:
+
+    if (
+        not isinstance(appointment_id, int)
+        or appointment_id <= 0
+        or not isinstance(new_appointment_id, int)
+        or new_appointment_id <= 0
+    ):
+        return {
+            "success": False,
+            "message": "Valid appointment slots are required."
+        }
+
+    if appointment_id == new_appointment_id:
+        return {
+            "success": False,
+            "message": "The new appointment must be different from the current appointment."
+        }
+
+    connection = get_connection()
+
+    try:
+
+        # --------------------------------------------------
+        # GET CURRENT BOOKED APPOINTMENT
+        # --------------------------------------------------
+
+        current = connection.execute(
+            """
+            SELECT
+                id,
+                appointment_date,
+                appointment_time,
+                patient_name,
+                status
+            FROM appointments
+            WHERE id = ?
+            AND status = 'booked'
+            """,
+            (appointment_id,)
+        ).fetchone()
+
+        if current is None:
+
+            return {
+                "success": False,
+                "message": (
+                    "The current appointment was not found "
+                    "or is not currently booked."
+                )
+            }
+
+
+        # --------------------------------------------------
+        # CHECK NEW APPOINTMENT
+        # --------------------------------------------------
+
+        new_slot = connection.execute(
+            """
+            SELECT
+                id,
+                appointment_date,
+                appointment_time,
+                status
+            FROM appointments
+            WHERE id = ?
+            """,
+            (new_appointment_id,)
+        ).fetchone()
+
+        if new_slot is None:
+
+            return {
+                "success": False,
+                "message": "The new appointment slot was not found."
+            }
+
+
+        if new_slot["status"] != "available":
+
+            return {
+                "success": False,
+                "message": "The new appointment slot is no longer available."
+            }
+
+
+        # --------------------------------------------------
+        # ATOMIC RESCHEDULE
+        # --------------------------------------------------
+
+        connection.execute(
+            """
+            UPDATE appointments
+            SET
+                patient_name = NULL,
+                status = 'available'
+            WHERE id = ?
+            AND status = 'booked'
+            """,
+            (appointment_id,)
+        )
+
+
+        cursor = connection.execute(
+            """
+            UPDATE appointments
+            SET
+                patient_name = ?,
+                status = 'booked'
+            WHERE id = ?
+            AND status = 'available'
+            """,
+            (
+                current["patient_name"],
+                new_appointment_id
+            )
+        )
+
+
+        if cursor.rowcount == 0:
+
+            connection.rollback()
+
+            return {
+                "success": False,
+                "message": (
+                    "The new appointment slot is no longer available."
+                )
+            }
+
+
+        connection.commit()
+
+
+        # --------------------------------------------------
+        # FETCH CONFIRMED RESCHEDULE
+        # --------------------------------------------------
+
+        updated = connection.execute(
+            """
+            SELECT
+                id,
+                appointment_date,
+                appointment_time,
+                patient_name,
+                status
+            FROM appointments
+            WHERE id = ?
+            """,
+            (new_appointment_id,)
+        ).fetchone()
+
+
+        if updated is None:
+
+            connection.rollback()
+
+            return {
+                "success": False,
+                "message": (
+                    "The rescheduled appointment could not be confirmed."
+                )
+            }
+
+
+        return {
+            "success": True,
+            "old_appointment_id": current["id"],
+            "old_date": current["appointment_date"],
+            "old_time": current["appointment_time"],
+            "appointment_id": updated["id"],
+            "date": updated["appointment_date"],
+            "time": updated["appointment_time"],
+            "patient_name": updated["patient_name"],
+            "status": updated["status"]
+        }
+
+
+    except Exception:
+
+        connection.rollback()
+
+        return {
+            "success": False,
+            "message": (
+                "The appointment could not be rescheduled "
+                "because of a database error."
+            )
+        }
+
+
+    finally:
+
+        connection.close()      

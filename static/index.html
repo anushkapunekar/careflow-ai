@@ -2184,6 +2184,19 @@ function speak(
     text
 ) {
 
+    const endingPhrases = [
+        "have a wonderful day",
+        "have a great day",
+        "goodbye",
+        "take care",
+    ];
+
+    const shouldEndConversation = 
+        endingPhrases.some(
+            phrase => 
+            text.toLowerCase().includes(phrase)
+        );
+
     const speechText =
         cleanTextForSpeech(
             text
@@ -2274,6 +2287,32 @@ function speak(
 
     utterance.onend =
         () => {
+
+            if(shouldEndConversation){
+
+                voiceSessionActive = false;
+
+                if(recognition){
+                    recognition.stop();
+                }
+
+                isSpeaking = false;
+                isProcessing = false;
+
+                startButton.disabled = false;
+                stopButton.disabled = true;
+
+                setState(
+                    "Conversation ended",
+                    "Press Start Talking to begin again."
+                );
+
+                setConnection(
+                    "System ready"
+                );
+
+                return;
+            }
 
             if (
                 !isSpeaking ||

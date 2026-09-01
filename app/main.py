@@ -26,8 +26,10 @@ from app.llm import (
 from app.tools import (
     check_appointment_availability,
     get_available_appointments,
+    get_patient_appointments,
     book_appointment,
     cancel_appointment,
+    reschedule_appointment,
 )
 
 from app.database import (
@@ -296,6 +298,10 @@ def get_booking_state(
             "time": None,
             "confirmed": False,
             "patient_name": None,
+            "rescheduling": False,
+            "rescheule_new_date": None,
+            "reschedule_new _time": None,
+            "reschedule_new_appointment_id": None,
         }
 
     return booking_states[
@@ -1379,6 +1385,33 @@ def handle_local_appointment_request(
         conversation_id
     )
 
+    #Stop/ABORT CURRENT BOOKING FLOW
+    #
+
+    stop_phrases = (
+        "stop",
+        "stop now",
+        "you can stop",
+        "cancel this request",
+        "cancel this",
+        "never mind",
+        "forget it",
+        "forget this",
+        "don't book",
+        "do not book",
+    )
+
+    if normalized in stop_phrases:
+
+        clear_booking_state(
+            conversation_id
+        )
+
+        return(
+            "No problem. I've stopped the current "
+            "appointment request."
+        )
+
 
     # ==================================================
     # EXTRACT PATIENT NAME
@@ -1394,6 +1427,61 @@ def handle_local_appointment_request(
             "LOCAL PATIENT NAME: %s",
             extracted_name
         )
+
+     # ==================================================
+    # RESCHEDULING
+    # ==================================================
+
+    if any(
+        phrase in normalized
+        for phrase in [
+            "reschedule my appointment",
+            "reschedule an appointment",
+            "reschedule appointment",
+            "change my appointment",
+            "move my appointment",
+        ]
+    ):
+
+        if state["appointment_id"] is None:
+
+            previous_booking = completed_bookings.get(
+                conversation_id
+            )
+
+            if previous_booking:
+
+                state["appointment_id"] = (
+                    previous_booking.get("appointment_id")
+                )
+
+                state["date"] = (
+                    previous_booking.get("date")
+                )
+
+                state["time"] = (
+                    previous_booking.get("time")
+                )
+
+                state["patient_name"] = (
+                    previous_booking.get("patient_name")
+                )
+
+            else:
+
+                return (
+                    "I can help you reschedule your appointment. "
+                    "Please tell me your current appointment date and time."
+                )
+
+        state["rescheduling"] = True
+        state["reschedule_new_date"] = None
+        state["reschedule_new_time"] = None
+
+        return (
+            "Sure. What new date would you like "
+            "for your appointment?"
+        )    
 
 
     # ==================================================
@@ -1493,7 +1581,218 @@ def handle_local_appointment_request(
             "Please try again."
         )
 
+    # ==================================================
+    # VIEW SCHEDULED APPOINTMENTS
+    # ==================================================
 
+    scheduled_appointments_request = any(
+        phrase in normalized
+        for phrase in [
+            "what appointments are scheduled",
+            "what appointments are scheduled for",
+            "what are the appointments scheduled",
+            "what appointments do i have",
+            "what appointment do i have",
+            "show my appointments",
+            "show me my appointments",
+            "when is my appointment",
+            "what is my appointment",
+            "what's my appointment",
+            "which appointment do i have",
+            "which appointments do i have",
+            "what appointments are booked",
+            "what appointment is booked",
+            "what appointments are availble for",
+            "what appointments are scheduled by",
+            "what appointments are scheduled under",
+        ]
+    )
+
+    if scheduled_appointments_request:
+
+        extracted_name = extract_patient_name(
+            message
+        )
+
+        patient_name = (
+            extracted_name
+            or state.get("patient_name")
+        )
+
+        # --------------------------------------------------
+        # EXTRACT NAME FROM:
+        # "appointments scheduled for Henry"
+        # "appointment under Henry"
+        # "appointments booked by Henry"
+        # --------------------------------------------------
+
+        if not patient_name:
+
+            name_match = re.search(
+                r"\b(?:for|under|by)\s+"
+                r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*)*)\s*$",
+                message,
+                re.IGNORECASE
+            )
+
+            if name_match:
+
+                candidate_name = (
+                    name_match.group(1).strip()
+                )
+
+                if looks_like_name(candidate_name):
+
+                    patient_name = candidate_name
+
+        # --------------------------------------------------
+        # FALL BACK TO MOST RECENT BOOKING
+        # --------------------------------------------------
+
+        if not patient_name:
+
+            previous_booking = completed_bookings.get(
+                conversation_id
+            )
+
+            if previous_booking:
+
+                patient_name = (
+                    previous_booking.get(
+                        "patient_name"
+                    )
+                )
+
+        # --------------------------------------------------
+        # NO NAME AVAILABLE
+        # --------------------------------------------------
+
+        if not patient_name:
+
+            return (
+                "I can check your scheduled appointments. "
+                "What is your full name?"
+            )
+
+        result = get_patient_appointments(
+            patient_name=patient_name
+        )
+
+        logger.info(
+            "LOCAL PATIENT APPOINTMENTS RESULT: %s",
+            result
+        )
+
+        appointments = result.get(
+            "appointments",
+            []
+        )
+
+        if not appointments:
+
+            return (
+                f"I don't have any scheduled appointments "
+                f"for {patient_name}."
+            )
+
+        if len(appointments) == 1:
+
+            appointment = appointments[0]
+
+            return (
+                f"{patient_name}, you have an appointment "
+                f"scheduled for "
+                f"{format_spoken_date(appointment['date'])} "
+                f"at "
+                f"{format_spoken_time(appointment['time'])}."
+            )
+
+        appointment_text = []
+
+        for appointment in appointments:
+
+            appointment_text.append(
+                f"{format_spoken_date(appointment['date'])} "
+                f"at "
+                f"{format_spoken_time(appointment['time'])}"
+            )
+
+        return (
+            f"{patient_name}, you have "
+            f"{len(appointments)} scheduled appointments: "
+            f"{format_time_list(appointment_text)}."
+        )
+
+        if not patient_name:
+
+            previous_booking = completed_bookings.get(
+                conversation_id
+            )
+
+            if previous_booking:
+
+                patient_name = (
+                    previous_booking.get(
+                        "patient_name"
+                    )
+                )
+
+        if not patient_name:
+
+            return (
+                "I can check your scheduled appointments. "
+                "What is your full name?"
+            )
+
+        result = get_patient_appointments(
+            patient_name=patient_name
+        )
+
+        logger.info(
+            "LOCAL PATIENT APPOINTMENTS RESULT: %s",
+            result
+        )
+
+        appointments = result.get(
+            "appointments",
+            []
+        )
+
+        if not appointments:
+
+            return (
+                f"I don't have any scheduled appointments "
+                f"for {patient_name}."
+            )
+
+        if len(appointments) == 1:
+
+            appointment = appointments[0]
+
+            return (
+                f"{patient_name}, you have an appointment "
+                f"scheduled for "
+                f"{format_spoken_date(appointment['date'])} "
+                f"at "
+                f"{format_spoken_time(appointment['time'])}."
+            )
+
+        appointment_text = []
+
+        for appointment in appointments:
+
+            appointment_text.append(
+                f"{format_spoken_date(appointment['date'])} "
+                f"at "
+                f"{format_spoken_time(appointment['time'])}"
+            )
+
+        return (
+            f"{patient_name}, you have "
+            f"{len(appointments)} scheduled appointments: "
+            f"{format_time_list(appointment_text)}."
+        )
+    
     # ==================================================
     # EXPLICIT DATE
     # ==================================================
@@ -1501,6 +1800,203 @@ def handle_local_appointment_request(
     resolved_date = resolve_date(
         message
     )
+
+        # ==================================================
+    # RESCHEDULING FLOW
+    # ==================================================
+
+    if state.get("rescheduling"):
+
+        # ----------------------------------------------
+        # NEW DATE
+        # ----------------------------------------------
+
+        if resolved_date:
+
+            state["reschedule_new_date"] = resolved_date
+
+            result = get_available_appointments(
+                date=resolved_date
+            )
+
+            logger.info(
+                "LOCAL RESCHEDULE DATE AVAILABILITY RESULT: %s",
+                result
+            )
+
+            if not result.get("available"):
+
+                state["reschedule_new_date"] = None
+
+                return (
+                    f"There are no available appointment "
+                    f"slots on {format_spoken_date(resolved_date)}. "
+                    f"Would you like to choose another date?"
+                )
+
+            slots = result.get("slots", [])
+
+            available_slots[
+                conversation_id
+            ] = {
+                slot["appointment_id"]
+                for slot in slots
+                if slot.get("appointment_id") is not None
+            }
+
+            times = [
+                format_spoken_time(slot["time"])
+                for slot in slots
+            ]
+
+            return (
+                f"I have {format_time_list(times)} "
+                f"available on "
+                f"{format_spoken_date(resolved_date)}. "
+                f"Which time would you like?"
+            )
+
+
+        # ----------------------------------------------
+        # NEW TIME
+        # ----------------------------------------------
+
+        resolved_reschedule_time = resolve_time(message)
+
+        if (
+            resolved_reschedule_time
+            and state.get("reschedule_new_date")
+        ):
+
+            result = check_appointment_availability(
+                date=state["reschedule_new_date"],
+                preferred_time=resolved_reschedule_time
+            )
+
+            logger.info(
+                "LOCAL RESCHEDULE TIME CHECK RESULT: %s",
+                result
+            )
+
+            if not result.get("available"):
+
+                available = get_available_appointments(
+                    date=state["reschedule_new_date"]
+                )
+
+                if available.get("available"):
+
+                    times = [
+                        format_spoken_time(slot["time"])
+                        for slot in available.get("slots", [])
+                    ]
+
+                    return (
+                        f"I don't have a slot at "
+                        f"{format_spoken_time(resolved_reschedule_time)} "
+                        f"on "
+                        f"{format_spoken_date(state['reschedule_new_date'])}. "
+                        f"The available times are "
+                        f"{format_time_list(times)}."
+                    )
+
+                return (
+                    f"There are no available appointment "
+                    f"slots on "
+                    f"{format_spoken_date(state['reschedule_new_date'])}."
+                )
+
+            state["reschedule_new_time"] = result.get("time")
+
+            state["reschedule_new_appointment_id"] = (
+                result.get("appointment_id")
+            )
+
+            return (
+                f"Just to confirm, would you like to move "
+                f"your appointment to "
+                f"{format_spoken_date(state['reschedule_new_date'])} "
+                f"at "
+                f"{format_spoken_time(state['reschedule_new_time'])}?"
+            )
+
+
+        # ----------------------------------------------
+        # CONFIRM NEW APPOINTMENT
+        # ----------------------------------------------
+
+        if (
+            is_confirmation(message)
+            and state.get("reschedule_new_appointment_id")
+        ):
+
+            result = reschedule_appointment(
+                appointment_id=state["appointment_id"],
+                new_appointment_id=state[
+                    "reschedule_new_appointment_id"
+                ]
+            )
+
+            logger.info(
+                "LOCAL RESCHEDULE RESULT: %s",
+                result
+            )
+
+            if result.get("success"):
+
+                old_appointment_id = (
+                    result.get("old_appointment_id")
+                )
+
+                new_appointment_id = (
+                    result.get("appointment_id")
+                )
+
+                available_slots.setdefault(
+                    conversation_id,
+                    set()
+                )
+
+                available_slots[
+                    conversation_id
+                ].discard(
+                    new_appointment_id
+                )
+
+                available_slots[
+                    conversation_id
+                ].add(
+                    old_appointment_id
+                )
+
+                new_date = result.get("date")
+                new_time = result.get("time")
+
+                patient_name = result.get(
+                    "patient_name"
+                )
+
+                clear_booking_state(
+                    conversation_id
+                )
+
+                return (
+                    f"Your appointment has been rescheduled "
+                    f"to "
+                    f"{format_spoken_date(new_date)} "
+                    f"at "
+                    f"{format_spoken_time(new_time)}"
+                    + (
+                        f", {patient_name}."
+                        if patient_name
+                        else "."
+                    )
+                )
+
+            return (
+                "I couldn't reschedule that appointment. "
+                "Please try again."
+            )
 
     if resolved_date:
 
@@ -1510,6 +2006,12 @@ def handle_local_appointment_request(
         state["time"] = None
         state["confirmed"] = False
 
+        logger.info(
+            "LOCAL DATE STATE UPDATED: conversation=%s date=%s",
+            conversation_id,
+            resolved_date
+        )
+       
 
     # ==================================================
     # USER WANTS TO BOOK
@@ -2069,8 +2571,15 @@ def handle_local_appointment_request(
     if (
         state["confirmed"]
         and not state["patient_name"]
-        and looks_like_name(message)
     ):
+
+        #REJECT OBVIOUSLY INVALID PATIENT NAMES LOCALLY.
+        if not looks_like_name(message):
+
+            return(
+                "I'm sorry, but that doesn't look like a valid "
+                "name. Please provide your full name using letters only."
+            )
 
         patient_name = message.strip()
 
@@ -2358,6 +2867,21 @@ def chat(
         .strip()
     )
 
+
+    if message.lower().strip() in {
+       "thank you",
+       "thanks",
+       "thankyou",
+       "thank you so much",
+       "thanks so much",
+    }:
+       return {
+        "conversation_id": conversation_id,
+        "response": (
+            "You're very welcome. Have a wonderful day!"
+        )
+    }
+
     request_start = time.perf_counter()
 
 
@@ -2419,10 +2943,7 @@ def chat(
             # local appointment router below.
             "cancellation": None,
 
-            "rescheduling": (
-                "Appointment rescheduling is not currently "
-                "supported by the CareFlow AI prototype."
-            ),
+            "rescheduling": None,
 
             "location": (
                 "The CareFlow Demo Clinic does not have a "
@@ -2468,7 +2989,10 @@ def chat(
 
         if (
             faq_answer
-            and faq_intent != "cancellation"
+            and faq_intent not in(
+                "cancellation",
+                "rescheduling",
+            ) 
         ):
 
             logger.info(
@@ -2491,7 +3015,10 @@ def chat(
 
         if (
             faq_intent
-            and faq_intent != "cancellation"
+            and faq_intent not in (
+                "cancellation",
+                "rescheduling",
+            )
         ):
 
             logger.warning(
@@ -2899,6 +3426,8 @@ def chat(
                         state = get_booking_state(
                             conversation_id
                         )
+
+                        
 
                         tool_date = (
                             state.get("date")
