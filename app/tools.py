@@ -173,7 +173,7 @@ def get_patient_appointments(
                 patient_name,
                 status
             FROM appointments
-            WHERE patient_name = ?
+            WHERE LOWER(patient_name) = LOWER(?)
             AND status = 'booked'
             ORDER BY appointment_date, appointment_time
             """,

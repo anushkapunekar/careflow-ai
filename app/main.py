@@ -299,9 +299,10 @@ def get_booking_state(
             "confirmed": False,
             "patient_name": None,
             "rescheduling": False,
-            "rescheule_new_date": None,
-            "reschedule_new _time": None,
+            "reschedule_new_date": None,
+            "reschedule_new_time": None,
             "reschedule_new_appointment_id": None,
+            "failed_attempts": 0,
         }
 
     return booking_states[
@@ -320,6 +321,11 @@ def clear_booking_state(
         "time": None,
         "confirmed": False,
         "patient_name": None,
+        "rescheduling": False,
+        "reschedule_new_date": None,
+        "reschedule_new_time": None,
+        "reschedule_new_appointment_id": None,
+        "failed_attempts": 0,
     }
 
 
@@ -1365,6 +1371,42 @@ def find_next_available_date(
 
     return None
 
+def handle_failed_attempt(
+    conversation_id: str,
+    message: str
+) -> str:
+
+    state = get_booking_state(
+        conversation_id
+    )
+
+    state["failed_attempts"] = (
+        state.get("failed_attempts", 0) + 1
+    )
+
+    logger.warning(
+        "LOCAL FAILED ATTEMPT: conversation=%s attempts=%s message=%s",
+        conversation_id,
+        state["failed_attempts"],
+        message
+    )
+
+    if state["failed_attempts"] >= 3:
+
+        clear_booking_state(
+            conversation_id
+        )
+
+        return (
+            "I'm having trouble completing this request. "
+            "I'll connect you with a member of our team "
+            "for further assistance."
+        )
+
+    return (
+        "I'm sorry, I couldn't process that. "
+        "Please try again."
+    )
 
 # ==================================================
 # LOCAL APPOINTMENT HANDLER
@@ -1993,9 +2035,9 @@ def handle_local_appointment_request(
                     )
                 )
 
-            return (
-                "I couldn't reschedule that appointment. "
-                "Please try again."
+            return handle_failed_attempt(
+                conversation_id,
+                message
             )
 
     if resolved_date:
@@ -2492,6 +2534,8 @@ def handle_local_appointment_request(
 
                 if result.get("success"):
 
+                    state["failed_attempts"] = 0
+
                     available_slots[
                         conversation_id
                     ].discard(
@@ -2544,14 +2588,9 @@ def handle_local_appointment_request(
                         f"has been booked, {patient_name}."
                     )
 
-
-                clear_booking_state(
-                    conversation_id
-                )
-
-                return (
-                    "I couldn't book that appointment because "
-                    "the slot is no longer available."
+                return handle_failed_attempt(
+                    conversation_id,
+                    message
                 )
 
 
@@ -2576,9 +2615,9 @@ def handle_local_appointment_request(
         #REJECT OBVIOUSLY INVALID PATIENT NAMES LOCALLY.
         if not looks_like_name(message):
 
-            return(
-                "I'm sorry, but that doesn't look like a valid "
-                "name. Please provide your full name using letters only."
+            return handle_failed_attempt(
+                conversation_id,
+                message
             )
 
         patient_name = message.strip()
@@ -2635,6 +2674,8 @@ def handle_local_appointment_request(
 
 
         if result.get("success"):
+
+            state["failed_attempts"] = 0
 
             available_slots[
                 conversation_id
@@ -2697,9 +2738,9 @@ def handle_local_appointment_request(
             conversation_id
         )
 
-        return (
-            "I couldn't book that appointment because "
-            "the slot is no longer available."
+        return handle_failed_attempt(
+            conversation_id,
+            message
         )
 
 
@@ -3291,11 +3332,10 @@ def chat(
             )
 
 
-            response_text = (
-                "I'm sorry, I couldn't process that "
-                "right now. Please try again."
+            response_text = handle_failed_attempt(
+                conversation_id,
+                message
             )
-
 
             conversation.append(
 
@@ -3313,7 +3353,13 @@ def chat(
                     conversation_id,
 
                 "response":
-                    response_text
+                    response_text,
+
+                "end_session":(
+                    get_booking_state(
+                        conversation_id
+                    ).get("failed_attempts", 0) >= 3
+                )    
             }
 
 
@@ -3895,7 +3941,16 @@ def chat(
                 "right now. Please try again."
             )
 
+                # ==================================================
+        # RESET FAILED ATTEMPTS AFTER SUCCESSFUL RESPONSE
+        # ==================================================
 
+        state = get_booking_state(
+            conversation_id
+        )
+
+        state["failed_attempts"] = 0
+        
         # ==================================================
         # SAVE ASSISTANT RESPONSE
         # ==================================================

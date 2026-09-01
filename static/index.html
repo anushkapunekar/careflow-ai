@@ -1704,6 +1704,9 @@ async function sendToAgent(
         const reply =
             data.response;
 
+        const shouldEndSession = 
+            data.end_Session === true;    
+
 
         if (!reply) {
 
@@ -1721,7 +1724,8 @@ async function sendToAgent(
 
 
         speak(
-            reply
+            reply,
+            shouldEndSession
         );
 
 
@@ -2175,13 +2179,72 @@ function stopSpeech() {
         false;
 }
 
+/* =========================================================
+   END VOICE SESSION
+========================================================= */
+
+function endVoiceSession() {
+
+    voiceSessionActive = false;
+
+    isListening = false;
+    isSpeaking = false;
+    isProcessing = false;
+
+    if (recognition) {
+
+        try {
+            recognition.stop();
+        } catch (error) {
+            console.debug(
+                "Recognition already stopped:",
+                error
+            );
+        }
+    }
+
+    if (recognitionRestartTimer !== null) {
+
+        clearTimeout(
+            recognitionRestartTimer
+        );
+
+        recognitionRestartTimer = null;
+    }
+
+    if (speechPauseTimer !== null) {
+
+        clearTimeout(
+            speechPauseTimer
+        );
+
+        speechPauseTimer = null;
+    }
+
+    startButton.disabled = false;
+    stopButton.disabled = true;
+
+    setState(
+        "Conversation ended",
+        "Press Start Talking to begin again."
+    );
+
+    setConnection(
+        "System ready"
+    );
+
+    console.log(
+        "🛑 VOICE SESSION ENDED"
+    );
+}
 
 /* =========================================================
    SPEAK
 ========================================================= */
 
 function speak(
-    text
+    text,
+    shouldEndConversation = false
 ) {
 
     const endingPhrases = [
@@ -2189,13 +2252,19 @@ function speak(
         "have a great day",
         "goodbye",
         "take care",
+        "further assistance",
+        "connect you with a member of our team",
     ];
 
-    const shouldEndConversation = 
+    const phraseEndsConversation = 
         endingPhrases.some(
             phrase => 
             text.toLowerCase().includes(phrase)
         );
+
+    shouldEndConversation = 
+        shouldEndConversation ||
+        phraseEndsConversation;
 
     const speechText =
         cleanTextForSpeech(
@@ -2290,28 +2359,9 @@ function speak(
 
             if(shouldEndConversation){
 
-                voiceSessionActive = false;
+                endVoiceSession();
 
-                if(recognition){
-                    recognition.stop();
-                }
-
-                isSpeaking = false;
-                isProcessing = false;
-
-                startButton.disabled = false;
-                stopButton.disabled = true;
-
-                setState(
-                    "Conversation ended",
-                    "Press Start Talking to begin again."
-                );
-
-                setConnection(
-                    "System ready"
-                );
-
-                return;
+                return;              
             }
 
             if (
