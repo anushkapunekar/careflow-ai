@@ -1637,7 +1637,6 @@ def handle_local_appointment_request(
             "what appointments are scheduled",
             "what appointments are scheduled for",
             "what are the appointments scheduled",
-            "what are the appointments scheduled for",
             "what appointments do i have",
             "what appointment do i have",
             "show my appointments",
@@ -1652,14 +1651,6 @@ def handle_local_appointment_request(
             "what appointments are availble for",
             "what appointments are scheduled by",
             "what appointments are scheduled under",
-            "appointments by",
-            "appointment by",
-            "appointments under",
-            "appointment under",
-            "appointment schedule under",
-            "appointments schedule under",
-            "appointments scheduled under",
-            "appointments scheduled by",
         ]
     )
 
