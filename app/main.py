@@ -1056,12 +1056,15 @@ def looks_like_name(
 def extract_patient_name(message: str) -> str | None:
 
     patterns = [
-        r"\bmy name is\s+([A-Za-z][A-Za-z'\-]*)",
-        r"\bi am\s+([A-Za-z][A-Za-z'\-]*)",
-        r"\bi'm\s+([A-Za-z][A-Za-z'\-]*)",
-        r"\bthe name is\s+([A-Za-z][A-Za-z'\-]*)",
-        r"\bname is\s+([A-Za-z][A-Za-z'\-]*)",
-        r"\bon the name of\s+([A-Za-z][A-Za-z'\-]*)",
+        r"\bmy name is\s+([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*)*)",
+        r"\bi am\s+([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*)*)",
+        r"\bi'm\s+([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*)*)",
+        r"\bthe name is\s+([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*)*)",
+        r"\bname is\s+([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*)*)",
+        r"\bon the name of\s+([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*)*)",
+        r"\bfor\s+([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*)*)",
+        r"\b(?:under|by)\s+([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*)*)",
+
     ]
 
     for pattern in patterns:
@@ -1523,7 +1526,7 @@ def handle_local_appointment_request(
         return (
             "Sure. What new date would you like "
             "for your appointment?"
-        )    
+        )
 
 
     # ==================================================
@@ -1652,40 +1655,13 @@ def handle_local_appointment_request(
 
     if scheduled_appointments_request:
 
-        extracted_name = extract_patient_name(
-            message
-        )
+        extracted_name = extract_patient_name(message)
 
-        patient_name = (
-            extracted_name
-            or state.get("patient_name")
-        )
+        if extracted_name:
+            patient_name = extracted_name
+        else:
+            patient_name = state.get("patient_name")
 
-        # --------------------------------------------------
-        # EXTRACT NAME FROM:
-        # "appointments scheduled for Henry"
-        # "appointment under Henry"
-        # "appointments booked by Henry"
-        # --------------------------------------------------
-
-        if not patient_name:
-
-            name_match = re.search(
-                r"\b(?:for|under|by)\s+"
-                r"([A-Za-z][A-Za-z'\-]*(?:\s+[A-Za-z][A-Za-z'\-]*)*)\s*$",
-                message,
-                re.IGNORECASE
-            )
-
-            if name_match:
-
-                candidate_name = (
-                    name_match.group(1).strip()
-                )
-
-                if looks_like_name(candidate_name):
-
-                    patient_name = candidate_name
 
         # --------------------------------------------------
         # FALL BACK TO MOST RECENT BOOKING
@@ -1834,7 +1810,7 @@ def handle_local_appointment_request(
             f"{len(appointments)} scheduled appointments: "
             f"{format_time_list(appointment_text)}."
         )
-    
+
     # ==================================================
     # EXPLICIT DATE
     # ==================================================
@@ -2053,7 +2029,7 @@ def handle_local_appointment_request(
             conversation_id,
             resolved_date
         )
-       
+
 
     # ==================================================
     # USER WANTS TO BOOK
@@ -3033,7 +3009,7 @@ def chat(
             and faq_intent not in(
                 "cancellation",
                 "rescheduling",
-            ) 
+            )
         ):
 
             logger.info(
@@ -3359,7 +3335,7 @@ def chat(
                     get_booking_state(
                         conversation_id
                     ).get("failed_attempts", 0) >= 3
-                )    
+                )
             }
 
 
@@ -3473,7 +3449,7 @@ def chat(
                             conversation_id
                         )
 
-                        
+
 
                         tool_date = (
                             state.get("date")
@@ -3950,7 +3926,7 @@ def chat(
         )
 
         state["failed_attempts"] = 0
-        
+
         # ==================================================
         # SAVE ASSISTANT RESPONSE
         # ==================================================
