@@ -1480,8 +1480,17 @@ def handle_local_appointment_request(
             "reschedule my appointment",
             "reschedule an appointment",
             "reschedule appointment",
+            "reschedule my appt",
+            "reschedule an appt",
             "change my appointment",
             "move my appointment",
+            "can you reschedule",
+            "can you reschedule my appointment",
+            "i want to reschedule",
+            "i need to reschedule",
+            "i want to change my appointment",
+            "i need to change my appointment",
+            "can i reschedule",
         ]
     ):
 
@@ -1529,15 +1538,31 @@ def handle_local_appointment_request(
     # ==================================================
     # CANCELLATION
     # ==================================================
+    cancellation_request = any(
+        phrase in normalized
+        for phrase in [
+            "cancel my appointment",
+            "cancel an appointment",
+            "cancel appointment",
+            "cancel my booking",
+            "cancel booking",
+            "cancel my appt",
+            "cancel an appt",
+            "can you cancel",
+            "can you cancel my appointment",
+            "i want to cancel",
+            "i need to cancel",
+            "i want to cancel my appointment",
+            "i need to cancel my appointment",
+            "can i cancel",
+            "cancel my visit",
+            "cancel the appointment",
+            "cancel this appointment",
+            "cancellation",
+        ]
+    )
 
-    if (
-        "cancel my appointment" in normalized
-        or "cancel an appointment" in normalized
-        or normalized == "cancel appointment"
-        or "cancel my booking" in normalized
-        or "cancel booking" in normalized
-        or normalized == "cancellation"
-    ):
+    if cancellation_request:
 
         appointment_id = (
             state.get("appointment_id")
