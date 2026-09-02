@@ -1647,6 +1647,9 @@ def handle_local_appointment_request(
             "what appointments are availble for",
             "what appointments are scheduled by",
             "what appointments are scheduled under",
+            "what appointment is scheduled by",
+            "what appointment scheduled by",
+            "what appointment for scheduled by",
         ]
     )
 
